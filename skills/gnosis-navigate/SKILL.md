@@ -27,7 +27,8 @@ current accuracy. Compare `stale_after` with the current date and disclose stale
 deprecated, conflicting, or unsupported knowledge when it affects the answer.
 
 The workspace-root `gnosis.lock` records imported packages' upstream commits.
-Local files may differ from that baseline. A pinned commit or package owner does
+Local files may differ from that baseline. Contributor allow/deny rules control
+contributions, not whether installed knowledge can be read. A pinned commit or package owner does
 not establish that local content is approved or current upstream.
 
 Answer with links to the actual concept files and relevant evidence. Identify

@@ -143,6 +143,30 @@ impl Store {
     }
 }
 
+pub fn file_at(repository: &Path, revision: &str, path: &str) -> Result<Option<Vec<u8>>> {
+    let listing = run(repository, &["ls-tree", "-z", revision, "--", path], true)?;
+    if listing.is_empty() {
+        return Ok(None);
+    }
+    let entry = std::str::from_utf8(&listing)?;
+    let (metadata, _) = entry.split_once('\t').context("invalid Git tree entry")?;
+    let fields: Vec<_> = metadata.split(' ').collect();
+    ensure!(
+        fields.len() == 3 && fields[0] == "100644" && fields[1] == "blob",
+        "policy must be a regular file: {path}"
+    );
+    let size = run(repository, &["cat-file", "-s", fields[2]], true)?;
+    ensure!(
+        std::str::from_utf8(&size)?.trim().parse::<usize>()? <= MAX_FILE,
+        "policy exceeds 16 MiB"
+    );
+    Ok(Some(run(
+        repository,
+        &["cat-file", "blob", fields[2]],
+        true,
+    )?))
+}
+
 pub fn tree_at(repository: &Path, revision: &str, directory: &str) -> Result<Tree> {
     let object = if directory.is_empty() {
         revision.to_owned()

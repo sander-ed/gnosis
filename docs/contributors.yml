@@ -1,0 +1,40 @@
+name: Gnosis contributor policy
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+jobs:
+  contributors:
+    name: Gnosis contributors
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a reviewed tool revision
+        env:
+          GNOSIS_REV: ${{ vars.GNOSIS_REV }}
+        run: '[[ "$GNOSIS_REV" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@v6
+        with:
+          repository: sander-ed/gnosis
+          ref: ${{ vars.GNOSIS_REV }}
+          path: gnosis-cli
+          token: ${{ secrets.GNOSIS_READ_TOKEN || github.token }}
+          persist-credentials: false
+      - name: Build trusted Gnosis
+        run: cargo install --path gnosis-cli --locked
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: catalog
+          fetch-depth: 0
+      - name: Authorize catalog contribution
+        working-directory: catalog
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags origin "refs/pull/$PR_NUMBER/head:refs/gnosis/proposal"
+          test "$(git rev-parse refs/gnosis/proposal)" = "$HEAD_SHA"
+          gnosis check --contributor "$PR_AUTHOR" --base "$BASE_SHA" --head "$HEAD_SHA"

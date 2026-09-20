@@ -9,7 +9,7 @@ use super::transaction::{Change, Entry};
 use super::{Workspace, package_names};
 use crate::metadata::{Lock, Manifest, Package};
 use crate::tree::Tree;
-use crate::{git, metadata, navigation, okf, tree};
+use crate::{contributors, git, metadata, navigation, okf, tree};
 
 pub struct NewEntry {
     pub directory: bool,
@@ -77,7 +77,9 @@ impl Workspace {
         );
         let original = self.knowledge()?;
         let mut tree = original.clone();
+        contributors::check_authenticated(&[manifest.contributors.as_ref()])?;
         let package = Package {
+            contributors: None,
             name: name.into(),
             owner,
             description,
@@ -144,7 +146,11 @@ impl Workspace {
         }
         let original = self.knowledge()?;
         let mut content = tree::subtree(&original, name);
-        metadata::package(&content, name)?;
+        let package = metadata::package(&content, name)?;
+        contributors::check_authenticated(&[
+            manifest.contributors.as_ref(),
+            package.contributors.as_ref(),
+        ])?;
         let destination = self.root.join("gnosis").join(name).join(&relative);
         ensure!(
             !destination.try_exists()?,

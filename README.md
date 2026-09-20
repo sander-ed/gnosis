@@ -144,18 +144,43 @@ the reported issues before retrying. Unused dependencies with local changes
 must be preserved before removal. Deleting an installed directory causes sync
 to restore it; remove a direct requirement from `gnosis.toml` to stop requesting it.
 
-To contribute changes from an imported package:
+To contribute changes, edit the installed package in your consuming workspace,
+then prepare a separate source checkout:
 
 ```sh
-gnosis propose platform --output ../platform-proposal
-git -C ../platform-proposal diff --cached
+gnosis propose core/ed-sql-prinsipper --output ../sql-proposal
+git -C ../sql-proposal diff --cached
 ```
 
-This prepares a separate source checkout on `gnosis/platform`, with only that
-package's changes staged. Review the diff, then commit, push, and open a pull
-request through your normal workflow. Check for confidential content before
-publishing. Gnosis does not commit, push, or open pull requests.
-Locally authored packages use their own repository's review workflow.
+`propose` gets the repository and ref from the installed package's lock entry.
+It merges your changes onto the current source ref and stages only that package
+on `gnosis/ed-sql-prinsipper`. The output directory must be new and outside
+`gnosis/`; relative paths are resolved from the selected workspace. Your consuming
+workspace and lock remain unchanged. Conflicts stop preparation.
+
+After reviewing the staged diff, complete the contribution with Git:
+
+```sh
+git -C ../sql-proposal commit -m "Clarify SQL principles"
+git -C ../sql-proposal push -u origin gnosis/ed-sql-prinsipper
+```
+
+Open a pull request in the source repository. If that branch already exists
+remotely, rename your local proposal branch before pushing. Push access is
+required; contributors without it need a permitted fork. Gnosis prepares the
+checkout but does not commit, push, or create the PR. If you are editing directly
+in the publishing repository, use an ordinary Git branch and PR there instead.
+
+## Contributor rules
+
+Catalogs and packages can declare `[contributors]` with `allow` and `deny` lists
+alongside ownership metadata. Local authoring and proposal preparation check
+restricted operations against an authenticated GitHub account. Source-repository
+CI enforces contributions against the protected base policy, including changes
+made directly with an editor and Git.
+
+See [contributor policy](docs/contributors.md) for configuration, rule precedence,
+and the required CI setup. Rules do not grant or replace GitHub permissions.
 
 ## Commands
 
@@ -210,6 +235,7 @@ workspace is restored.
 | `src/cli/` | Subcommand arguments, help, and execution adapters |
 | `src/workspace/` | Authoring, sources, dependency resolution, sync, proposals, and transactions |
 | `src/metadata.rs` | Manifest, lock, package, and source metadata |
+| `src/contributors.rs` | Contributor rules and GitHub identity checks |
 | `src/okf.rs` | Concept metadata and document validation |
 | `src/navigation.rs` | Generated indexes |
 | `src/tree.rs` | File trees and path validation |

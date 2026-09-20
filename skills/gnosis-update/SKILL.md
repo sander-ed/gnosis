@@ -14,6 +14,22 @@ Follow the package's documented conventions and any schema it actually supplies.
 There is no required `standard.yml`, schema file, or index template. Gnosis checks
 basic structure; it does not enforce custom schemas or establish factual accuracy.
 
+## Contributor rules
+
+Read `[contributors]` in the catalog's `gnosis.toml` and target `package.toml`.
+Both must permit the contributor: missing `allow` is unrestricted, an empty
+`allow` permits nobody, and `deny` overrides `allow`. Match individual GitHub.com
+logins case-insensitively, ignoring an optional `@`. Ownership is not an exemption.
+
+When restrictions apply, establish identity with `gh api --hostname github.com
+user --jq .login`; do not infer it from Git names, emails, or package ownership.
+If identity cannot be verified or policy denies access, report that result before
+editing. Do not relax rules to make an edit pass. Imported policy copies can be
+stale; `propose` checks the latest source catalog and package policy. Direct local
+contributions use source-repository CI with the protected base policy. The
+`check --contributor --base --head` mode is for trusted CI event data, not a way
+to claim another identity locally.
+
 ## Author and organize
 
 Edit existing concepts directly. Preserve unrelated content and unknown metadata,
@@ -69,7 +85,7 @@ change outside the edited package; inspect it without overwriting unrelated work
 Report structural failures separately from the factual review of the content.
 
 For a requested upstream contribution from an imported package, run
-`gnosis propose NAME --output PATH` with a new checkout path outside `gnosis/`.
+`gnosis propose NAME --output PATH` (or `SOURCE/NAME`) with a new checkout path outside `gnosis/`.
 It merges the selected package's changes against the current source ref and
 stages them on a `gnosis/NAME` branch in a separate checkout. Inspect that
 checkout's staged diff for scope and confidential content. The command does not

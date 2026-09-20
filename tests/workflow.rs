@@ -1235,3 +1235,315 @@ fn add_explains_local_packages_and_missing_sources() {
     );
     assert_eq!(before, snapshot(&fixture.source));
 }
+
+#[cfg(unix)]
+fn cli_as(root: &Path, actor: &str, args: &[&str]) -> Output {
+    use std::os::unix::fs::PermissionsExt;
+    let tools = tempfile::tempdir().unwrap();
+    let gh = tools.path().join("gh");
+    fs::write(&gh, format!("#!/bin/sh\nprintf '%s\\n' '{actor}'\n")).unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = std::env::join_paths(
+        std::iter::once(tools.path().to_owned())
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+    execute(
+        Command::new(env!("CARGO_BIN_EXE_gnosis"))
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .env("PATH", path),
+    )
+}
+
+#[cfg(unix)]
+#[test]
+fn authoring_enforces_catalog_and_package_contributors() {
+    let fixture = Fixture::new();
+    let root = &fixture.source;
+    write(
+        root,
+        "gnosis.toml",
+        format!(
+            "{}\n[contributors]\nallow = ['alice', 'bob']\n",
+            read(root, "gnosis.toml")
+        ),
+    );
+    write(
+        root,
+        "gnosis/core/package.toml",
+        format!(
+            "{}\n[contributors]\ndeny = ['bob']\n",
+            read(root, "gnosis/core/package.toml")
+        ),
+    );
+    let before = snapshot(root);
+    let denied = cli_as(root, "bob", &["new", "core", "denied"]);
+    assert!(!denied.status.success());
+    assert!(String::from_utf8_lossy(&denied.stderr).contains("blocked"));
+    assert_eq!(snapshot(root), before);
+    let denied = cli_as(
+        root,
+        "charlie",
+        &["package", "denied", "--owner", "charlie"],
+    );
+    assert!(!denied.status.success());
+    assert_eq!(snapshot(root), before);
+    let unauthenticated = cli_as(root, "", &["new", "core", "denied"]);
+    assert!(!unauthenticated.status.success());
+    assert_eq!(snapshot(root), before);
+    success(cli_as(root, "alice", &["new", "core", "allowed"]));
+    success(cli_as(
+        root,
+        "alice",
+        &["package", "allowed", "--owner", "alice"],
+    ));
+    cli(root, &["index"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn proposals_use_current_source_policy_not_the_editable_copy() {
+    let fixture = Fixture::new();
+    fixture.install();
+    cli(
+        &fixture.consumer,
+        &[
+            "new",
+            "platform",
+            "proposal",
+            "--body",
+            "A local improvement",
+        ],
+    );
+    write(
+        &fixture.source,
+        "gnosis.toml",
+        format!(
+            "{}\n[contributors]\nallow = ['alice', 'bob']\n",
+            read(&fixture.source, "gnosis.toml")
+        ),
+    );
+    write(
+        &fixture.source,
+        "gnosis/platform/package.toml",
+        format!(
+            "{}\n[contributors]\ndeny = ['bob']\n",
+            read(&fixture.source, "gnosis/platform/package.toml")
+        ),
+    );
+    commit(&fixture.source);
+    let before = snapshot(&fixture.consumer);
+    let output = fixture.temporary.path().join("proposal");
+    let args = [
+        "propose",
+        "team/platform",
+        "--output",
+        output.to_str().unwrap(),
+    ];
+    let denied = cli_as(&fixture.consumer, "bob", &args);
+    assert!(!denied.status.success());
+    assert!(String::from_utf8_lossy(&denied.stderr).contains("blocked"));
+    assert!(!output.exists());
+    let denied = cli_as(&fixture.consumer, "charlie", &args);
+    assert!(!denied.status.success());
+    assert!(!output.exists());
+    assert_eq!(snapshot(&fixture.consumer), before);
+    success(cli_as(&fixture.consumer, "alice", &args));
+    assert!(output.join("gnosis/platform/proposal.md").exists());
+    assert_eq!(snapshot(&fixture.consumer), before);
+    assert_eq!(
+        git(&output, &["branch", "--show-current"]).trim(),
+        "gnosis/platform"
+    );
+}
+
+#[test]
+fn ci_checks_old_policies_even_when_a_proposal_removes_them() {
+    let fixture = Fixture::new();
+    let root = &fixture.source;
+    let manifest = read(root, "gnosis.toml");
+    write(
+        root,
+        "gnosis.toml",
+        format!("{manifest}\n[contributors]\nallow = ['alice', 'bob']\n"),
+    );
+    let package = read(root, "gnosis/platform/package.toml");
+    write(
+        root,
+        "gnosis/platform/package.toml",
+        format!("{package}\n[contributors]\nallow = ['alice']\n"),
+    );
+    let base = commit(root);
+    write(root, "gnosis.toml", &manifest);
+    fs::remove_dir_all(root.join("gnosis/platform")).unwrap();
+    let head = commit(root);
+    let base = base.trim();
+    let head = head.trim();
+    let before = snapshot(root);
+    fails(
+        root,
+        &[
+            "check",
+            "--contributor",
+            "bob",
+            "--base",
+            base,
+            "--head",
+            head,
+        ],
+        "package platform contributor policy",
+    );
+    fails(
+        root,
+        &[
+            "check",
+            "--contributor",
+            "charlie",
+            "--base",
+            base,
+            "--head",
+            head,
+        ],
+        "catalog contributor policy",
+    );
+    cli(
+        root,
+        &[
+            "check",
+            "--contributor",
+            "alice",
+            "--base",
+            base,
+            "--head",
+            head,
+        ],
+    );
+    assert_eq!(snapshot(root), before);
+}
+
+#[test]
+fn ci_checks_new_packages_against_catalog_policy_and_requires_all_arguments() {
+    let fixture = Fixture::new();
+    let root = &fixture.source;
+    write(
+        root,
+        "gnosis.toml",
+        format!(
+            "{}\n[contributors]\nallow = ['alice']\n",
+            read(root, "gnosis.toml")
+        ),
+    );
+    let base = commit(root);
+    write(
+        root,
+        "gnosis/new-package/package.toml",
+        "name = 'new-package'\nowner = 'bob'\n",
+    );
+    let head = commit(root);
+    fails(
+        root,
+        &[
+            "check",
+            "--contributor",
+            "bob",
+            "--base",
+            base.trim(),
+            "--head",
+            head.trim(),
+        ],
+        "catalog contributor policy",
+    );
+    cli(
+        root,
+        &[
+            "check",
+            "--contributor",
+            "alice",
+            "--base",
+            base.trim(),
+            "--head",
+            head.trim(),
+        ],
+    );
+    fails(
+        root,
+        &["check", "--contributor", "alice"],
+        "required arguments",
+    );
+    fails(
+        root,
+        &["check", "--base", base.trim()],
+        "required arguments",
+    );
+}
+
+#[test]
+fn propose_explains_local_packages_and_rejects_a_different_source() {
+    let fixture = Fixture::new();
+    fails(
+        &fixture.source,
+        &["propose", "platform", "--output", "../proposal"],
+        "create a Git branch in this repository",
+    );
+    fixture.install();
+    fails(
+        &fixture.consumer,
+        &["propose", "other/platform", "--output", "../proposal"],
+        "installed from team",
+    );
+}
+
+#[test]
+fn ci_uses_latest_base_rules_but_only_the_proposed_branch_changes() {
+    let fixture = Fixture::new();
+    let root = &fixture.source;
+    git(root, &["checkout", "-b", "proposal"]);
+    write(root, "gnosis/core/branch.md", concept("Proposed change"));
+    let head = commit(root);
+    git(root, &["checkout", "main"]);
+    write(
+        root,
+        "gnosis/platform/package.toml",
+        format!(
+            "{}\n[contributors]\nallow = []\n",
+            read(root, "gnosis/platform/package.toml")
+        ),
+    );
+    let base = commit(root);
+    cli(
+        root,
+        &[
+            "check",
+            "--contributor",
+            "alice",
+            "--base",
+            base.trim(),
+            "--head",
+            head.trim(),
+        ],
+    );
+    write(
+        root,
+        "gnosis/core/package.toml",
+        format!(
+            "{}\n[contributors]\nallow = []\n",
+            read(root, "gnosis/core/package.toml")
+        ),
+    );
+    let restricted_base = commit(root);
+    fails(
+        root,
+        &[
+            "check",
+            "--contributor",
+            "alice",
+            "--base",
+            restricted_base.trim(),
+            "--head",
+            head.trim(),
+        ],
+        "package core contributor policy",
+    );
+}

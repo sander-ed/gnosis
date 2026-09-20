@@ -1,4 +1,5 @@
 mod cli;
+mod contributors;
 mod git;
 mod metadata;
 mod navigation;

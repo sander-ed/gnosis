@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
+use crate::contributors::Contributors;
 use crate::tree::{MAX_FILE, Tree};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -16,6 +17,8 @@ pub struct Source {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contributors: Option<Contributors>,
     pub format: u32,
     #[serde(default)]
     pub packages: BTreeSet<String>,
@@ -28,6 +31,8 @@ pub struct Manifest {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Package {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contributors: Option<Contributors>,
     pub name: String,
     pub owner: String,
     #[serde(default)]
@@ -107,6 +112,9 @@ pub fn validate_source(source: &Source) -> Result<()> {
 }
 
 pub fn validate_manifest(manifest: &Manifest) -> Result<()> {
+    if let Some(policy) = &manifest.contributors {
+        policy.validate()?;
+    }
     ensure!(
         manifest.format == 1,
         "unsupported manifest format {}",
@@ -135,6 +143,9 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<()> {
 
 pub fn package(tree: &Tree, expected: &str) -> Result<Package> {
     let manifest: Package = decode(tree.get("package.toml").context("missing package.toml")?)?;
+    if let Some(policy) = &manifest.contributors {
+        policy.validate()?;
+    }
     name(&manifest.name)?;
     ensure!(
         manifest.name == expected,

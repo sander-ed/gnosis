@@ -1,4 +1,5 @@
 mod authoring;
+mod contributions;
 mod dependencies;
 mod inspection;
 mod proposal;
