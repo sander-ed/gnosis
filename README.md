@@ -219,6 +219,12 @@ cargo fmt --check
 
 Integration tests use temporary local Git repositories.
 
-The optional [agent skill](skills/gnosis/SKILL.md) covers package navigation,
-editing, and contribution review. Copy it into your agent's skill directory to
-use it.
+Two optional agent skills separate reading from editing:
+
+- [gnosis-navigate](skills/gnosis-navigate/SKILL.md): find and read knowledge,
+  assess provenance, and answer with citations.
+- [gnosis-update](skills/gnosis-update/SKILL.md): edit packages, validate changes,
+  and prepare upstream contributions.
+
+Copy either skill folder into your agent's skill directory. If you previously
+installed the combined `gnosis` skill, replace it with these folders.

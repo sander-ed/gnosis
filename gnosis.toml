@@ -1,6 +1,9 @@
 format = 1
 packages = ["beno-core"]
 
-[sources]
+[sources.core]
+repository = "git@github.com:sander-ed/ed-gnosis-core.git"
+ref = "HEAD"
 
 [dependencies]
+ed-sql-prinsipper = "core"

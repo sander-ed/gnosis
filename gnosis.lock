@@ -1,7 +1,17 @@
 format = 1
 
 [requirements]
+ed-sql-prinsipper = "core"
 
-[sources]
+[sources.core]
+repository = "git@github.com:sander-ed/ed-gnosis-core.git"
+ref = "HEAD"
 
-[packages]
+[packages.ed-sql-prinsipper]
+source = "core"
+commit = "3d52d8825af003c25f7ff7e2606ce12b50142d99"
+dependencies = []
+
+[packages.ed-sql-prinsipper.location]
+repository = "git@github.com:sander-ed/ed-gnosis-core.git"
+ref = "HEAD"

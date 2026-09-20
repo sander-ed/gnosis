@@ -3,3 +3,4 @@
 # Knowledge packages
 
 * [beno-core](beno-core/index.md) - Kjernefunksjonalitet for BearingPoint Norge sin gnosis pakke
+* [ed-sql-prinsipper](ed-sql-prinsipper/index.md) - Prinsipper som skal etterleves når SQL skal skrives i alle sammenhenger
