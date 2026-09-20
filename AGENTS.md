@@ -64,4 +64,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 # Project Specific Instructions
 
+## Retaining knowledge
 
+Always interact with the `gnosis` knowledge catalog when extracting or inserting new knowledge about the core business logic of the application.
+
+If something new is discovered from the user that is relevant to keep in memory, refer to the `gnosis`-skills.
