@@ -46,7 +46,10 @@ package registers it for publication through that repository's Git workflow.
 ## Dependencies and upstream changes
 
 Declare package dependencies by name in `package.toml`. Install external ones
-with `gnosis add NAME --source SOURCE`; configure a requested source with
+with `gnosis add SOURCE/NAME` using the names shown by `gnosis list`.
+`gnosis add NAME` retains an existing selection or infers a unique publisher;
+use `--source SOURCE` to choose explicitly. Install from the consuming workspace;
+a locally authored package is already available. Configure a requested source with
 `gnosis source ALIAS REPOSITORY --ref REF`. Use Git authentication, not credentials
 embedded in URLs. Do not invent a source selection for ambiguous packages.
 

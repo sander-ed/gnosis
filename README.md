@@ -46,14 +46,22 @@ through your repository's access controls and branch protection.
 
 ## Install packages
 
-In a consumer repository:
+Run these commands in the project that will consume the knowledge. A source is
+a Git repository that publishes packages; `team` is its local alias, used to
+locate content and future updates. A package already authored in the current
+workspace is available without installation.
 
 ```sh
 gnosis init
 gnosis source team git@github.com:my-org/knowledge.git --ref main
 gnosis list
-gnosis add platform --source team
+gnosis add team/platform
 ```
+
+Copy a `SOURCE/NAME` from `gnosis list` directly into `gnosis add`. You can also
+use `gnosis add platform`: it retains an existing source selection or infers the
+only configured repository publishing that package. If several sources match,
+choose one with `team/platform` or `platform --source team`.
 
 Commit the manifest, lock, and installed knowledge:
 

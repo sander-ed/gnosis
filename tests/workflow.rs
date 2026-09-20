@@ -1131,3 +1131,107 @@ fn new_edits_imported_packages_offline_and_only_proposes_selected_content() {
     );
     assert_eq!(snapshot(&fixture.source), source_before);
 }
+
+#[test]
+fn add_accepts_names_copied_from_list() {
+    let fixture = Fixture::new();
+    let listing = cli(&fixture.consumer, &["list"]);
+    let name = listing
+        .lines()
+        .find(|line| line.starts_with("team/platform\t"))
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap();
+    cli(&fixture.consumer, &["add", name]);
+    cli(&fixture.consumer, &["check"]);
+    assert!(fixture.consumer.join("gnosis/core/facts.md").exists());
+    let manifest: toml::Value = toml::from_str(&read(&fixture.consumer, "gnosis.toml")).unwrap();
+    assert_eq!(manifest["dependencies"]["platform"].as_str(), Some("team"));
+    cli(&fixture.consumer, &["add", name, "--source", "team"]);
+}
+
+#[test]
+fn add_infers_the_unique_publisher_among_sources() {
+    let fixture = Fixture::new();
+    let second = fixture.other("empty-source");
+    git(&second, &["init", "--quiet", "--initial-branch=main"]);
+    cli(&second, &["init"]);
+    commit(&second);
+    cli(
+        &fixture.consumer,
+        &["source", "other", second.to_str().unwrap()],
+    );
+    cli(&fixture.consumer, &["add", "platform"]);
+    cli(&fixture.consumer, &["check"]);
+    assert!(fixture.consumer.join("gnosis/core/facts.md").exists());
+}
+
+#[test]
+fn add_reports_ambiguity_and_preserves_an_existing_selection() {
+    let fixture = Fixture::new();
+    cli(
+        &fixture.consumer,
+        &["source", "other", fixture.source.to_str().unwrap()],
+    );
+    let before = snapshot(&fixture.consumer);
+    fails(
+        &fixture.consumer,
+        &["add", "platform"],
+        "other/platform, team/platform",
+    );
+    assert_eq!(before, snapshot(&fixture.consumer));
+    cli(&fixture.consumer, &["add", "team/core"]);
+    cli(&fixture.consumer, &["add", "team/platform"]);
+    let installed = snapshot(&fixture.consumer);
+    cli(&fixture.consumer, &["add", "platform"]);
+    assert_eq!(installed, snapshot(&fixture.consumer));
+}
+
+#[test]
+fn add_rejects_conflicting_sources_and_invalid_names_without_changes() {
+    let fixture = Fixture::new();
+    let before = snapshot(&fixture.consumer);
+    for (args, message) in [
+        (
+            vec!["add", "team/platform", "--source", "other"],
+            "conflicts with --source",
+        ),
+        (vec!["add", "team/platform/extra"], "invalid name"),
+        (vec!["add", "/platform"], "invalid name"),
+        (vec!["add", "team/"], "invalid name"),
+        (vec!["add", "missing/platform"], "unknown source"),
+        (
+            vec!["add", "missing"],
+            "no configured source publishes missing",
+        ),
+    ] {
+        fails(&fixture.consumer, &args, message);
+        assert_eq!(before, snapshot(&fixture.consumer));
+    }
+}
+
+#[test]
+fn add_explains_local_packages_and_missing_sources() {
+    let fixture = Fixture::new();
+    let before = snapshot(&fixture.source);
+    for args in [
+        vec!["add", "platform"],
+        vec!["add", "team/platform"],
+        vec!["add", "platform", "--source", "team"],
+    ] {
+        fails(
+            &fixture.source,
+            &args,
+            "already available in this workspace",
+        );
+        fails(&fixture.source, &args, "consuming project");
+        assert_eq!(before, snapshot(&fixture.source));
+    }
+    fails(
+        &fixture.source,
+        &["add", "missing"],
+        "gnosis source ALIAS REPOSITORY",
+    );
+    assert_eq!(before, snapshot(&fixture.source));
+}

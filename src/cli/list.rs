@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::workspace::Workspace;
 
-/// List packages published by configured sources.
+/// List available packages as SOURCE/NAME for use with gnosis add.
 #[derive(clap::Args)]
 pub(super) struct Args {}
 
