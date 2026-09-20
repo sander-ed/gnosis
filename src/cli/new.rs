@@ -9,15 +9,10 @@ use crate::workspace::{NewEntry, Workspace};
 #[derive(clap::Args)]
 #[command(after_help = "\
 Examples:
-  gnosis new platform migration-checklist --type Playbook --description \"Migration steps\"
-  gnosis new platform migrations/ -T Playbook -t \"Migrations\" -d \"Migration guidance\"
-  gnosis new platform migrations/checklist.md --body-file draft.md
-  gnosis new platform findings --body-file -
+  gnosis new platform checklist --type Playbook
+  gnosis new platform operations/ --title \"Operations\"
 
-Files and folders default to type Reference and a title derived from their name.
-A trailing / also selects directory mode. Folder metadata lives in index.yml;
-its title and description appear in the parent index.md.
-No prompts, network access, commits, or publication. Existing paths are never overwritten.")]
+Folder metadata is stored in index.yml. Existing paths are never overwritten.")]
 pub(super) struct Args {
     /// Existing local or imported package.
     package: String,
