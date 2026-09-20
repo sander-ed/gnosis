@@ -9,7 +9,7 @@ ref = "HEAD"
 
 [packages.ed-sql-prinsipper]
 source = "core"
-commit = "3d52d8825af003c25f7ff7e2606ce12b50142d99"
+commit = "b02987f5e5f7cd2abca3a245355757a5253a36bf"
 dependencies = []
 
 [packages.ed-sql-prinsipper.location]
