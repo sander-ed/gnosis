@@ -9,6 +9,10 @@ sources:
     title: JSON Schema draft 2020-12
   - resource: ../../README.md
     title: Implemented CLI contracts and examples
+  - resource: ../../internal/knowledge/files.go
+    title: Metadata validation and bounded atomic writes
+  - resource: ../../internal/knowledge/policy.go
+    title: Package policy and template validation
 ---
 
 # Context
@@ -38,8 +42,10 @@ and dependency names. Structural management metadata uses strict decoding;
 concepts remain extensible. Package names match directory names.
 
 Every package carries `standard.yml`, a referenced JSON Schema for frontmatter,
-and an index template. The policy can also require files, exact heading lines,
-and a maximum whitespace-token count in each concept body. These stricter
+and an index template. Validation checks that the referenced template exists as
+a regular file and has valid Go template syntax. The policy can also require
+files, exact heading lines, and a maximum whitespace-token count in each concept
+body. These stricter
 requirements are package policy, not OKF requirements. The baseline `type`
 requirement cannot be disabled. This architecture package demonstrates a
 stricter policy requiring titles, descriptions, sources, and decision headings.
@@ -54,6 +60,10 @@ repository-relative path, and default branch. Descriptions and owner labels are
 discovery metadata; the fetched source manifest remains authoritative.
 Repository discovery reads immediate-child manifests and optional registry
 mappings. Changing a name's source requires an explicit registry edit.
+Pull honors that edit for explicitly updated packages; restore and unselected
+dependencies retain their locked sources. Discovery blobs and generated
+management files are bounded to 16 MiB; oversized writes do not replace existing
+metadata.
 
 `gnosis.lock` records each imported package's source, source commit, split
 subtree commit, version, and dependency names. SHA pins, not semantic-version

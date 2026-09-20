@@ -1,4 +1,4 @@
-package main
+package workspace
 
 import (
 	"bytes"
@@ -11,60 +11,63 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gnosis/internal/knowledge"
 )
 
-type proposalOptions struct {
-	name    string
-	title   string
-	body    string
-	branch  string
-	publish bool
+type ProposalOptions struct {
+	Name    string
+	Title   string
+	Body    string
+	Branch  string
+	Publish bool
 }
 
-func propose(ctx context.Context, w workspace, options proposalOptions, out io.Writer) error {
+func Propose(ctx context.Context, w Workspace, options ProposalOptions, out io.Writer) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	if err := validName(options.name); err != nil {
+	if err := knowledge.ValidateName(options.Name); err != nil {
 		return err
 	}
-	if err := w.noPending(); err != nil {
+	if err := w.NoPending(); err != nil {
 		return err
 	}
 	if err := w.clean(ctx); err != nil {
 		return err
 	}
-	if err := validateWorkspace(w, []string{options.name}); err != nil {
+	if err := Validate(w, []string{options.Name}); err != nil {
 		return err
 	}
-	lock, err := readLock(w.dir)
+	lock, err := knowledge.ReadLock(w.Dir)
 	if err != nil {
 		return err
 	}
-	p, exists := lock.Packages[options.name]
+	p, exists := lock.Packages[options.Name]
 	if !exists {
 		return errors.New("package is locally authored; propose changes with the source repository's normal Git/PR workflow")
 	}
-	if strings.TrimSpace(options.title) == "" {
-		options.title = "Update " + options.name
+	if strings.TrimSpace(options.Title) == "" {
+		options.Title = "Update " + options.Name
 	}
-	if options.branch == "" {
-		options.branch = fmt.Sprintf("gnosis/%s-%d", options.name, time.Now().UnixNano())
+	if options.Branch == "" {
+		options.Branch = fmt.Sprintf("gnosis/%s-%d", options.Name, time.Now().UnixNano())
 	}
-	if !strings.HasPrefix(options.branch, "gnosis/") || options.branch == p.Source.DefaultBranch {
+	if !strings.HasPrefix(options.Branch, "gnosis/") || options.Branch == p.Source.DefaultBranch {
 		return errors.New("proposal branch must start with gnosis/ and must not be the default branch")
 	}
-	if _, err := git(ctx, w.root, "check-ref-format", "refs/heads/"+options.branch); err != nil {
+	if _, err := git(ctx, w.Root, "check-ref-format", "refs/heads/"+options.Branch); err != nil {
 		return err
 	}
-	if options.publish {
+	if options.Publish {
 		if _, err := exec.LookPath("gh"); err != nil {
 			return errors.New("publishing requires GitHub CLI (gh); install it and run gh auth login")
 		}
 	}
-	cmd := gitCommand(ctx, w.root,
+	cmd := GitCommand(ctx, w.Root,
 		"diff", "--binary", "--full-index", "--no-ext-diff", "--no-textconv",
-		p.SubtreeCommit, "HEAD:gnosis/"+options.name, "--",
+		p.SubtreeCommit, "HEAD:gnosis/"+options.Name, "--",
 	)
+	manageProcess(cmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	patch, err := cmd.Output()
@@ -81,7 +84,7 @@ func propose(ctx context.Context, w workspace, options proposalOptions, out io.W
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return err
 	}
-	repo, err := cloneSource(ctx, p.Source, parent)
+	repo, err := cloneSource(ctx, p.Source, parent, "")
 	if err != nil {
 		return fmt.Errorf("prepare proposal (checkout retained at %s): %w", repo, err)
 	}
@@ -90,7 +93,7 @@ func propose(ctx context.Context, w workspace, options proposalOptions, out io.W
 		return err
 	}
 	for _, field := range []string{"user.name", "user.email"} {
-		value, err := git(ctx, w.root, "config", "--get", field)
+		value, err := git(ctx, w.Root, "config", "--get", field)
 		if err != nil {
 			return err
 		}
@@ -104,7 +107,7 @@ func propose(ctx context.Context, w workspace, options proposalOptions, out io.W
 		}
 	}
 	_, err = git(
-		ctx, repo, "checkout", "--quiet", "-b", options.branch, "origin/"+p.Source.DefaultBranch,
+		ctx, repo, "checkout", "--quiet", "-b", options.Branch, "origin/"+p.Source.DefaultBranch,
 	)
 	if err != nil {
 		return err
@@ -113,7 +116,8 @@ func propose(ctx context.Context, w workspace, options proposalOptions, out io.W
 	if p.Source.Path != "." {
 		args = append(args, "--directory="+p.Source.Path)
 	}
-	apply := gitCommand(ctx, repo, args...)
+	apply := GitCommand(ctx, repo, args...)
+	manageProcess(apply)
 	apply.Stdin = bytes.NewReader(patch)
 	result, err := apply.CombinedOutput()
 	if err != nil {
@@ -128,29 +132,29 @@ func propose(ctx context.Context, w workspace, options proposalOptions, out io.W
 	if err := validateProposal(ctx, repo, p.Source.Path); err != nil {
 		return fmt.Errorf("proposal failed validation in %s: %w", repo, err)
 	}
-	changes, err := git(ctx, repo, "diff", "--cached", "--name-only")
+	changes, err := gitPaths(ctx, repo, "diff", "--cached", "--name-only")
 	if err != nil {
 		return err
 	}
-	if changes == "" {
+	if len(changes) == 0 {
 		return fmt.Errorf("source already contains these changes; checkout retained at %s", repo)
 	}
 	if p.Source.Path != "." {
-		for _, file := range strings.Split(changes, "\n") {
+		for _, file := range changes {
 			if !strings.HasPrefix(file, p.Source.Path+"/") {
 				return fmt.Errorf("proposal unexpectedly changes %s outside its package", file)
 			}
 		}
 	}
-	if _, err := git(ctx, repo, "commit", "-m", options.title); err != nil {
+	if _, err := git(ctx, repo, "commit", "-m", options.Title); err != nil {
 		return err
 	}
-	if !options.publish {
-		_, err := fmt.Fprintf(out, "Prepared branch %s; nothing pushed. Review with git -C %q show.\n", options.branch, repo)
+	if !options.Publish {
+		_, err := fmt.Fprintf(out, "Prepared branch %s; nothing pushed. Review with git -C %q show.\n", options.Branch, repo)
 		return err
 	}
 	if _, err := git(ctx, repo, "push", "--set-upstream", "origin",
-		"HEAD:refs/heads/"+options.branch,
+		"HEAD:refs/heads/"+options.Branch,
 	); err != nil {
 		return fmt.Errorf("proposal retained at %s; pushing requires source write access "+
 			"(or set up a fork there manually): %w", repo, err)
@@ -158,9 +162,10 @@ func propose(ctx context.Context, w workspace, options proposalOptions, out io.W
 	ghCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	pr := exec.CommandContext(ghCtx, "gh",
-		"pr", "create", "--base", p.Source.DefaultBranch, "--head", options.branch,
-		"--title", options.title, "--body", options.body,
+		"pr", "create", "--base", p.Source.DefaultBranch, "--head", options.Branch,
+		"--title", options.Title, "--body", options.Body,
 	)
+	manageProcess(pr)
 	pr.Dir = repo
 	pr.Stdout = out
 	var ghError bytes.Buffer
@@ -170,7 +175,7 @@ func propose(ctx context.Context, w workspace, options proposalOptions, out io.W
 			err = ghCtx.Err()
 		}
 		return fmt.Errorf("branch %s was pushed but PR creation failed; retry gh pr create in %s: %w\n%s",
-			options.branch, repo, err, ghError.String(),
+			options.Branch, repo, err, ghError.String(),
 		)
 	}
 	return nil
@@ -189,6 +194,6 @@ func validateProposal(ctx context.Context, repo, prefix string) (err error) {
 	if err := exportTree(ctx, repo, subtreeTree(tree, prefix), dir); err != nil {
 		return err
 	}
-	_, _, _, err = scanPackage(dir, true)
+	_, err = knowledge.ValidatePackage(dir)
 	return err
 }

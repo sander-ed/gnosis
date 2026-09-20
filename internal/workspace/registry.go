@@ -1,4 +1,4 @@
-package main
+package workspace
 
 import (
 	"context"
@@ -7,23 +7,18 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
+
+	"gnosis/internal/knowledge"
 )
 
-func mergeRegistry(w workspace, incoming registry) error {
-	existing, err := readRegistry(w.dir)
+func MergeRegistry(w Workspace, incoming knowledge.Registry) error {
+	existing, err := knowledge.ReadRegistry(w.Dir)
 	if err != nil {
 		return err
 	}
 	for name, entry := range incoming {
-		if err := validName(name); err != nil {
+		if err := entry.Validate(name); err != nil {
 			return err
-		}
-		if !ownerPattern.MatchString(entry.Owner) {
-			return fmt.Errorf("%s: owner must be @user or @organization/team", name)
-		}
-		if err := entry.Source.validate(); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
 		}
 		old, exists := existing[name]
 		if exists && old.Source != entry.Source {
@@ -33,16 +28,16 @@ func mergeRegistry(w workspace, incoming registry) error {
 		}
 		existing[name] = entry
 	}
-	return writeData(filepath.Join(w.dir, "registry.yml"), existing)
+	return knowledge.WriteData(filepath.Join(w.Dir, "registry.yml"), existing)
 }
 
-func discoverRegistry(ctx context.Context, s source) (result registry, err error) {
+func DiscoverRegistry(ctx context.Context, s knowledge.Source) (result knowledge.Registry, err error) {
 	tmp, err := os.MkdirTemp("", "gnosis-discover-")
 	if err != nil {
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(tmp)) }()
-	repo, err := cloneSource(ctx, s, tmp)
+	repo, err := cloneSource(ctx, s, tmp, "")
 	if err != nil {
 		return nil, err
 	}
@@ -50,12 +45,11 @@ func discoverRegistry(ctx context.Context, s source) (result registry, err error
 	if err != nil {
 		return nil, err
 	}
-	listing, err := git(ctx, repo, "ls-tree", "-r", "--name-only", commit)
+	files, err := gitPaths(ctx, repo, "ls-tree", "-r", "--name-only", commit)
 	if err != nil {
 		return nil, err
 	}
-	result = registry{}
-	files := strings.Split(listing, "\n")
+	result = knowledge.Registry{}
 	registryFile := ""
 	for _, file := range files {
 		base := path.Base(file)
@@ -67,12 +61,12 @@ func discoverRegistry(ctx context.Context, s source) (result registry, err error
 			return nil, fmt.Errorf("ambiguous source registries: %s and %s", registryFile, file)
 		}
 		registryFile = file
-		data, err := git(ctx, repo, "show", commit+":"+file)
+		data, err := gitOutput(ctx, repo, "show", commit+":"+file)
 		if err != nil {
 			return nil, err
 		}
-		var entries registry
-		if err := decode([]byte(data), &entries); err != nil {
+		var entries knowledge.Registry
+		if err := knowledge.Decode(data, &entries); err != nil {
 			return nil, err
 		}
 		if entries == nil {
@@ -99,27 +93,27 @@ func discoverRegistry(ctx context.Context, s source) (result registry, err error
 			return nil, fmt.Errorf("ambiguous source manifests: %s and %s", previous, file)
 		}
 		manifestDirs[parent] = file
-		data, err := git(ctx, repo, "show", commit+":"+file)
+		data, err := gitOutput(ctx, repo, "show", commit+":"+file)
 		if err != nil {
 			return nil, err
 		}
-		var m manifest
-		if err := decode([]byte(data), &m); err != nil {
+		var m knowledge.Manifest
+		if err := knowledge.Decode(data, &m); err != nil {
 			return nil, fmt.Errorf("%s: %w", file, err)
 		}
-		if err := m.validate(); err != nil {
+		if err := m.Validate(); err != nil {
 			return nil, fmt.Errorf("%s: %w", file, err)
 		}
 		if parent != s.Path && path.Base(parent) != m.Package {
 			return nil, fmt.Errorf("%s: package name must match its directory", file)
 		}
-		owner, err := m.Owner.handle()
+		owner, err := m.Owner.Handle()
 		if err != nil {
 			return nil, err
 		}
 		packageSource := s
 		packageSource.Path = parent
-		entry := registryEntry{Description: m.Description, Owner: owner, Source: packageSource}
+		entry := knowledge.RegistryEntry{Description: m.Description, Owner: owner, Source: packageSource}
 		if existing, exists := result[m.Package]; exists && existing != entry {
 			return nil, fmt.Errorf("conflicting definitions of %s in source registry/manifests", m.Package)
 		}

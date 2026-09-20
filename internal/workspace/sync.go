@@ -1,30 +1,33 @@
-package main
+package workspace
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"gnosis/internal/knowledge"
 )
 
 type preparedPackage struct {
 	name string
 	repo string
-	lock lockedPackage
+	lock knowledge.LockedPackage
 }
 
 type resolver struct {
-	w        workspace
-	registry registry
-	lock     lockfile
-	local    map[string]manifest
+	w        Workspace
+	registry knowledge.Registry
+	lock     knowledge.Lockfile
+	local    map[string]knowledge.Manifest
 	tmp      string
-	clones   map[source]string
+	clones   map[knowledge.Source]string
 	states   map[string]int
 	update   map[string]bool
 	restore  bool
@@ -32,7 +35,7 @@ type resolver struct {
 }
 
 func (r *resolver) visit(ctx context.Context, name string) error {
-	if err := validName(name); err != nil {
+	if err := knowledge.ValidateName(name); err != nil {
 		return err
 	}
 	if r.states[name] == 1 {
@@ -45,7 +48,7 @@ func (r *resolver) visit(ctx context.Context, name string) error {
 	m, exists := r.local[name]
 	locked, imported := r.lock.Packages[name]
 	if exists && (!imported || !r.update[name]) {
-		if _, _, _, err := scanPackage(filepath.Join(r.w.dir, name), true); err != nil {
+		if _, err := knowledge.ValidatePackage(filepath.Join(r.w.Dir, name)); err != nil {
 			return err
 		}
 		for _, dep := range m.Dependencies {
@@ -67,7 +70,9 @@ func (r *resolver) visit(ctx context.Context, name string) error {
 	pinned := ""
 	if imported {
 		s = locked.Source
-		if !r.update[name] {
+		if r.update[name] && discovered {
+			s = entry.Source
+		} else if !r.update[name] {
 			pinned = locked.Commit
 		}
 	}
@@ -76,7 +81,7 @@ func (r *resolver) visit(ctx context.Context, name string) error {
 	repo, ok := r.clones[key]
 	if !ok {
 		var err error
-		repo, err = cloneSource(ctx, s, r.tmp)
+		repo, err = cloneSource(ctx, s, r.tmp, pinned)
 		if err != nil {
 			return err
 		}
@@ -101,7 +106,7 @@ func (r *resolver) visit(ctx context.Context, name string) error {
 	if err := exportTree(ctx, repo, subtreeTree(commit, s.Path), dir); err != nil {
 		return err
 	}
-	m, _, _, err = scanPackage(dir, true)
+	m, err = knowledge.ValidatePackage(dir)
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
@@ -121,15 +126,18 @@ func (r *resolver) visit(ctx context.Context, name string) error {
 		if _, err := git(ctx, repo, "checkout", "--quiet", "--detach", commit); err != nil {
 			return err
 		}
-		split, err = git(ctx, repo, "subtree", "split", "--quiet", "--prefix="+s.Path, commit)
+		// Native subtree parses ls-tree's display output rather than NUL-delimited paths.
+		split, err = git(
+			ctx, repo, "-c", "core.quotePath=false", "subtree", "split", "--quiet", "--prefix="+s.Path, commit,
+		)
 		if err != nil {
 			return err
 		}
 	}
-	if !shaPattern.MatchString(split) {
+	if !knowledge.IsCommit(split) {
 		return fmt.Errorf("git subtree returned an invalid commit %q", split)
 	}
-	next := lockedPackage{
+	next := knowledge.LockedPackage{
 		Source: s, Version: m.Version, Commit: commit, SubtreeCommit: split,
 		Dependencies: append([]string{}, m.Dependencies...),
 	}
@@ -144,33 +152,33 @@ func (r *resolver) visit(ctx context.Context, name string) error {
 	return nil
 }
 
-type syncOptions struct {
-	names   []string
-	update  bool
-	restore bool
+type SyncOptions struct {
+	Names   []string
+	Update  bool
+	Restore bool
 }
 
-func syncPackages(ctx context.Context, w workspace, options syncOptions, out io.Writer) (err error) {
-	if err := w.noPending(); err != nil {
+func Sync(ctx context.Context, w Workspace, options SyncOptions, out io.Writer) (err error) {
+	if err := w.NoPending(); err != nil {
 		return err
 	}
 	if err := w.clean(ctx); err != nil {
 		return err
 	}
-	lock, err := readLock(w.dir)
+	lock, err := knowledge.ReadLock(w.Dir)
 	if err != nil {
 		return err
 	}
-	local, err := localPackages(w)
+	local, err := Packages(w)
 	if err != nil {
 		return err
 	}
-	discovered, err := readRegistry(w.dir)
+	discovered, err := knowledge.ReadRegistry(w.Dir)
 	if err != nil {
 		return err
 	}
-	if len(options.names) == 0 {
-		options.names = sortedKeys(lock.Packages)
+	if len(options.Names) == 0 {
+		options.Names = knowledge.SortedKeys(lock.Packages)
 	}
 	tmp, err := os.MkdirTemp("", "gnosis-resolve-")
 	if err != nil {
@@ -179,21 +187,28 @@ func syncPackages(ctx context.Context, w workspace, options syncOptions, out io.
 	defer func() { err = errors.Join(err, os.RemoveAll(tmp)) }()
 	r := resolver{
 		w: w, registry: discovered, lock: lock, local: local, tmp: tmp,
-		clones: map[source]string{}, states: map[string]int{}, update: map[string]bool{},
-		restore: options.restore, prepared: []preparedPackage{},
+		clones: map[knowledge.Source]string{}, states: map[string]int{}, update: map[string]bool{},
+		restore: options.Restore, prepared: []preparedPackage{},
 	}
-	for _, name := range options.names {
-		if options.update {
+	for _, name := range options.Names {
+		if options.Update {
 			if _, exists := lock.Packages[name]; !exists {
 				return fmt.Errorf("%s is not imported; use add or the source repository's Git workflow", name)
 			}
 			r.update[name] = true
 		}
 	}
-	for _, name := range options.names {
+	for _, name := range options.Names {
 		if err := r.visit(ctx, name); err != nil {
 			return err
 		}
+	}
+	projected := knowledge.Lockfile{GnosisVersion: lock.GnosisVersion, Packages: maps.Clone(lock.Packages)}
+	for _, p := range r.prepared {
+		projected.Packages[p.name] = p.lock
+	}
+	if err := validateLockGraph(local, projected); err != nil {
+		return fmt.Errorf("%w; pull the affected dependencies together to update their pins", err)
 	}
 	for _, p := range r.prepared {
 		if err := applyPackage(ctx, w, p); err != nil {
@@ -207,13 +222,13 @@ func syncPackages(ctx context.Context, w workspace, options syncOptions, out io.
 }
 
 type pendingUpdate struct {
-	Name       string        `yaml:"name"`
-	BeforeHead string        `yaml:"before_head"`
-	Package    lockedPackage `yaml:"package"`
+	Name       string                  `yaml:"name"`
+	BeforeHead string                  `yaml:"before_head"`
+	Package    knowledge.LockedPackage `yaml:"package"`
 }
 
-func applyPackage(ctx context.Context, w workspace, p preparedPackage) error {
-	dir, err := safePath(w.dir, p.name)
+func applyPackage(ctx context.Context, w Workspace, p preparedPackage) error {
+	dir, err := knowledge.SafePath(w.Dir, p.name)
 	if err != nil {
 		return err
 	}
@@ -223,7 +238,7 @@ func applyPackage(ctx context.Context, w workspace, p preparedPackage) error {
 		return statErr
 	}
 	if !exists {
-		ignored, err := git(ctx, w.root, "check-ignore", "--no-index", "gnosis/"+p.name)
+		ignored, err := git(ctx, w.Root, "check-ignore", "--no-index", "gnosis/"+p.name)
 		if err == nil && ignored != "" {
 			return fmt.Errorf("gnosis/%s is ignored by Git; correct .gitignore before importing", p.name)
 		}
@@ -234,22 +249,22 @@ func applyPackage(ctx context.Context, w workspace, p preparedPackage) error {
 			}
 		}
 	}
-	if _, err := git(ctx, w.root, "fetch", "--quiet", "--no-tags", p.repo, p.lock.SubtreeCommit); err != nil {
+	if _, err := git(ctx, w.Root, "fetch", "--quiet", "--no-tags", p.repo, p.lock.SubtreeCommit); err != nil {
 		return err
 	}
-	before, err := git(ctx, w.root, "rev-parse", "HEAD")
+	before, err := git(ctx, w.Root, "rev-parse", "HEAD")
 	if err != nil {
 		return err
 	}
 	pending := pendingUpdate{Name: p.name, BeforeHead: before, Package: p.lock}
-	if err := writeData(w.pendingPath(), pending); err != nil {
+	if err := knowledge.WriteData(w.PendingPath(), pending); err != nil {
 		return err
 	}
 	verb := "add"
 	if exists {
 		verb = "merge"
 	}
-	_, err = git(ctx, w.root,
+	_, err = git(ctx, w.Root,
 		"subtree", verb, "--prefix=gnosis/"+p.name,
 		"-m", "gnosis: "+verb+" "+p.name, p.lock.SubtreeCommit,
 	)
@@ -260,53 +275,79 @@ func applyPackage(ctx context.Context, w workspace, p preparedPackage) error {
 	return finishUpdate(ctx, w, pending)
 }
 
-func finishUpdate(ctx context.Context, w workspace, pending pendingUpdate) error {
-	if err := validName(pending.Name); err != nil {
+func finishUpdate(ctx context.Context, w Workspace, pending pendingUpdate) error {
+	if err := knowledge.ValidateName(pending.Name); err != nil {
 		return err
 	}
-	if !shaPattern.MatchString(pending.Package.SubtreeCommit) || !shaPattern.MatchString(pending.BeforeHead) {
+	if !knowledge.IsCommit(pending.Package.SubtreeCommit) || !knowledge.IsCommit(pending.BeforeHead) {
 		return errors.New("invalid pending update commit IDs")
 	}
-	if _, err := git(ctx, w.root, "merge-base", "--is-ancestor", pending.BeforeHead, "HEAD"); err != nil {
+	if _, err := git(ctx, w.Root, "merge-base", "--is-ancestor", pending.BeforeHead, "HEAD"); err != nil {
 		return errors.New("HEAD no longer descends from the update's starting commit; recover the Git history first")
 	}
-	if _, err := git(ctx, w.root, "merge-base", "--is-ancestor", pending.Package.SubtreeCommit, "HEAD"); err != nil {
+	if _, err := git(ctx, w.Root, "merge-base", "--is-ancestor", pending.Package.SubtreeCommit, "HEAD"); err != nil {
 		return errors.New("the package merge has not completed; resolve and commit it, or use pull --abort")
 	}
 	if err := pendingWorktree(ctx, w, false); err != nil {
 		return err
 	}
-	dir, err := safePath(w.dir, pending.Name)
-	if err != nil {
-		return err
-	}
-	m, _, _, err := scanPackage(dir, true)
-	if err != nil {
+	if err := validateMergedPackage(w, pending.Name, pending.Package); err != nil {
 		return fmt.Errorf("merged package failed validation; fix and commit it before pull --continue: %w", err)
 	}
-	if m.Package != pending.Name {
-		return errors.New("merged manifest package name changed")
-	}
-	lock, err := readLock(w.dir)
+	lock, err := knowledge.ReadLock(w.Dir)
 	if err != nil {
 		return err
 	}
 	lock.Packages[pending.Name] = pending.Package
-	if err := writeData(filepath.Join(w.dir, "gnosis.lock"), lock); err != nil {
+	if err := knowledge.WriteData(filepath.Join(w.Dir, "gnosis.lock"), lock); err != nil {
 		return err
 	}
 	if err := commitMetadata(ctx, w, pending.Name); err != nil {
 		return err
 	}
-	return os.Remove(w.pendingPath())
+	return os.Remove(w.PendingPath())
 }
 
-func recoverUpdate(ctx context.Context, w workspace, abort bool) error {
+func validateMergedPackage(w Workspace, name string, next knowledge.LockedPackage) error {
+	dir, err := knowledge.SafePath(w.Dir, name)
+	if err != nil {
+		return err
+	}
+	m, err := knowledge.ValidatePackage(dir)
+	if err != nil {
+		return err
+	}
+	if m.Package != name {
+		return errors.New("merged manifest package name changed")
+	}
+	packages, err := Packages(w)
+	if err != nil {
+		return err
+	}
+	lock, err := knowledge.ReadLock(w.Dir)
+	if err != nil {
+		return err
+	}
+	lock.Packages[name] = next
+	if err := validateLockGraph(packages, lock); err != nil {
+		return err
+	}
+	// Missing locked packages may still be waiting in a multi-package restore.
+	for name, p := range lock.Packages {
+		if _, exists := packages[name]; !exists {
+			packages[name] = knowledge.Manifest{Dependencies: p.Dependencies}
+		}
+	}
+	_, err = dependencyOrder(packages, knowledge.SortedKeys(packages))
+	return err
+}
+
+func Recover(ctx context.Context, w Workspace, abort bool) error {
 	var pending pendingUpdate
-	if err := readData(w.pendingPath(), &pending); err != nil {
+	if err := knowledge.ReadData(w.PendingPath(), &pending); err != nil {
 		return fmt.Errorf("no readable pending update: %w", err)
 	}
-	if err := validName(pending.Name); err != nil {
+	if err := knowledge.ValidateName(pending.Name); err != nil {
 		return err
 	}
 	_, statErr := os.Lstat(filepath.Join(w.gitDir, "MERGE_HEAD"))
@@ -316,72 +357,69 @@ func recoverUpdate(ctx context.Context, w workspace, abort bool) error {
 	}
 	if abort {
 		if merging {
-			if _, err := git(ctx, w.root, "merge", "--abort"); err != nil {
+			if _, err := git(ctx, w.Root, "merge", "--abort"); err != nil {
 				return err
 			}
 		}
-		head, err := git(ctx, w.root, "rev-parse", "HEAD")
+		head, err := git(ctx, w.Root, "rev-parse", "HEAD")
 		if err != nil {
 			return err
 		}
 		if head != pending.BeforeHead {
 			return errors.New("merge already committed; use pull --continue (gnosis will not reset your commits)")
 		}
-		status, err := git(ctx, w.root, "status", "--porcelain")
+		status, err := git(ctx, w.Root, "status", "--porcelain")
 		if err != nil {
 			return err
 		}
 		if status != "" {
 			return errors.New("working tree still has changes; inspect git status before retrying pull --abort")
 		}
-		return os.Remove(w.pendingPath())
+		return os.Remove(w.PendingPath())
 	}
 	if merging {
-		unmerged, err := git(ctx, w.root, "diff", "--name-only", "--diff-filter=U")
+		unmerged, err := gitPaths(ctx, w.Root, "diff", "--name-only", "--diff-filter=U")
 		if err != nil {
 			return err
 		}
-		if unmerged != "" {
+		if len(unmerged) != 0 {
 			return errors.New("resolve and stage all Git conflicts before pull --continue")
 		}
 		if err := pendingWorktree(ctx, w, true); err != nil {
 			return err
 		}
-		staged, err := git(ctx, w.root, "diff", "--cached", "--name-only")
+		staged, err := gitPaths(ctx, w.Root, "diff", "--cached", "--name-only")
 		if err != nil {
 			return err
 		}
-		for _, file := range strings.Split(staged, "\n") {
-			if file != "" && !strings.HasPrefix(file, "gnosis/"+pending.Name+"/") {
+		for _, file := range staged {
+			if !strings.HasPrefix(file, "gnosis/"+pending.Name+"/") {
 				return fmt.Errorf("unrelated staged change %s; remove it from the index before continuing", file)
 			}
 		}
-		if _, _, _, err := scanPackage(filepath.Join(w.dir, pending.Name), true); err != nil {
+		if err := validateMergedPackage(w, pending.Name, pending.Package); err != nil {
 			return err
 		}
-		if _, err := git(ctx, w.root, "commit", "--no-edit"); err != nil {
+		if _, err := git(ctx, w.Root, "commit", "--no-edit"); err != nil {
 			return err
 		}
 	}
 	return finishUpdate(ctx, w, pending)
 }
 
-func pendingWorktree(ctx context.Context, w workspace, merging bool) error {
-	untracked, err := git(ctx, w.root, "ls-files", "--others", "--exclude-standard")
+func pendingWorktree(ctx context.Context, w Workspace, merging bool) error {
+	untracked, err := gitPaths(ctx, w.Root, "ls-files", "--others", "--exclude-standard")
 	if err != nil {
 		return err
 	}
-	if untracked != "" {
+	if len(untracked) != 0 {
 		return errors.New("commit or remove untracked changes before pull --continue")
 	}
-	unstaged, err := git(ctx, w.root, "diff", "--name-only")
+	unstaged, err := gitPaths(ctx, w.Root, "diff", "--name-only")
 	if err != nil {
 		return err
 	}
-	for _, file := range strings.Split(unstaged, "\n") {
-		if file == "" {
-			continue
-		}
+	for _, file := range unstaged {
 		metadata := file == "gnosis/gnosis.lock" || file == "gnosis/index.md"
 		if merging || !metadata {
 			return fmt.Errorf("stage/commit the unstaged change in %s before pull --continue", file)

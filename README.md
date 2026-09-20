@@ -15,10 +15,10 @@ gnosis does not store credentials. GitHub Enterprise works through Git and
 `gh auth login --hostname HOST`.
 
 ```sh
-go build -o bin/gnosis .
+go build -o bin/gnosis ./cmd/gnosis
 ./bin/gnosis --help
 # Or install into GOBIN / GOPATH/bin (which must be on PATH):
-go install .
+go install ./cmd/gnosis
 ```
 
 Use `bin/gnosis`, not `go build -o gnosis`: `gnosis/` is the knowledge directory.
@@ -97,7 +97,9 @@ max_words: 600
 disables the limit. `required_files` lists package-relative files. Paths and
 schema references must remain inside the package; remote schema fetching and
 symlinks are not supported. Package files are limited to 16 MiB each, with a
-256 MiB aggregate import limit.
+256 MiB aggregate import limit. Discovery metadata and generated management
+files also have a 16 MiB limit; oversized registry updates leave existing data
+unchanged.
 
 The baseline OKF rule always requires a nonempty string `type`. Optional trust,
 provenance, and lifecycle fields are not required by the default policy. Unknown
@@ -132,6 +134,8 @@ and `log.md` do not contain frontmatter. `log.md` date headings use
 Hand-authored package indexes require explicit `gnosis index NAME --force`
 before replacement. A hand-authored root `gnosis/index.md` must be moved aside
 explicitly. Missing indexes are allowed by validation, as OKF permits.
+The referenced index template, however, must exist, be a regular file, and have
+valid Go template syntax; validation and imports enforce this before indexing.
 
 ## Discover and install packages
 
@@ -193,11 +197,16 @@ gnosis status --short
 
 `gnosis.lock` records each package's source, source commit, split subtree commit,
 version, and dependencies. Existing dependency pins stay fixed unless explicitly
-pulled (or included in `pull` without names). Imports and successful updates
+pulled (or included in `pull` without names). An explicit, committed registry
+source edit is honored by the next pull of that package, including a changed
+repository, path, or branch. Unselected dependency pins remain unchanged;
+restore always uses the locked source, not an edited registry.
+Imports and successful updates
 create subtree commits and separate lock/index commits. A Git clone of a consumer
 already contains its packages; restore is for missing package directories.
 Restore does not reset existing packages or discard local edits. Source history
-must still make locked commits available.
+must still make locked commits available, but the original branch name need not
+exist.
 
 Updates use real Git merges:
 
@@ -213,12 +222,23 @@ gnosis pull --abort
 
 The lock remains unchanged until that package merge succeeds. A pending operation
 is recorded under the Git directory and blocks other package mutations.
+Both automatic completion and continuation validate the merged dependency graph
+before advancing the package lock. An invalid graph retains the old lock and
+pending record: repair the manifests, then continue.
+Projected lock dependencies are also checked before imports or updates begin.
+If updating only one package would create a cycle among pins, pull the affected
+dependencies together; local manifest edits do not override source pins.
 Continuation validates the result and commits the lock/index. Once the merge is
 committed, finish with `--continue`; abort will not reset commits. If a
 multi-package operation stops, earlier successful packages remain committed;
 finish/abort the pending package, then rerun the original command for the rest.
 A crash can leave `gnosis/operation.lock` inside the Git directory: inspect its
 PID and ensure no operation is running before manually removing that exact file.
+Cancellation terminates internal Git/`gh` process trees on Unix and Windows and
+bounds pipe draining. An interrupted Git command can leave partial staged
+changes, including a hook interrupted before Git records a merge. Inspect
+`git status` and the retained pending operation; gnosis never resets those
+changes automatically.
 
 `gnosis rebase -X ours origin/main` and `gnosis merge ...` pass arguments to Git
 at the **consumer repository root**. They affect the whole repository, not a
@@ -272,10 +292,27 @@ the confirmed requirements, design decisions, and primary research sources.
 
 ## Development
 
+```text
+cmd/gnosis/                  Executable entry point and signal handling
+internal/cli/                Cobra commands, I/O, and exit codes
+internal/knowledge/          Manifests, policies, OKF validation, and indexes
+internal/knowledge/assets/   Embedded package scaffolding
+internal/workspace/          Git operations, registry, sync, proposals, and ownership
+internal/testutil/           Shared test fixtures and subprocess helpers
+tests/integration/           End-to-end CLI workflows
+skills/                     Canonical, embedded agent skill definitions
+gnosis/                     The project's knowledge base
+```
+
+Unit tests live beside their packages. CLI workflows cross the public command
+interface in `tests/integration/`. Dependency direction is
+`cmd/gnosis -> cli -> workspace -> knowledge`; the CLI also uses knowledge
+contracts directly. Knowledge-format code does not depend on Cobra or Git.
+
 ```sh
 go test ./...
 go vet ./...
-go build -o bin/gnosis .
+go build -o bin/gnosis ./cmd/gnosis
 bin/gnosis validate
 ```
 

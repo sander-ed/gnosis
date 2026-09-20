@@ -30,6 +30,7 @@ The implementation conversation explicitly confirmed these answers:
 | Which Open Knowledge Format specification? | GoogleCloudPlatform/knowledge-catalog OKF v0.2 |
 | How should packages integrate with Git? | Vendored Git subtrees, with repository-wide merge/rebase |
 | Who owns the architecture package? | `@sander-ed` |
+| How should the Go code be organized? | Use a clearer folder structure instead of a flat Go layout |
 
 Each direct child directory of `gnosis/` is one package and one OKF bundle.
 Each package has exactly one accountable GitHub user or team. Multiple
@@ -43,7 +44,8 @@ It never invents facts or human verification.
 The following are implementation defaults, not additional user-confirmed
 requirements: main as the default source branch; YAML for generated metadata
 with YAML/JSON manifest support; descriptive version strings with commit pins
-rather than version-range resolution; a flat Go package; package-local JSON
+rather than version-range resolution; the specific internal package split;
+package-local JSON
 Schema and text templates; and proposal preparation without publication unless
 `--publish` is explicitly supplied.
 

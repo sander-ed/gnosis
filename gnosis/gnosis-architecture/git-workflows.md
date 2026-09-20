@@ -11,6 +11,8 @@ sources:
     title: Sparse checkout
   - resource: https://cli.github.com/manual/gh_pr_create
     title: GitHub CLI pull request creation
+  - resource: ../../internal/workspace/sync.go
+    title: Source selection and merged dependency validation
 ---
 
 # Context
@@ -29,7 +31,9 @@ package history is fetched into the consumer and added or merged under
 package history rather than squashing it, enabling ancestry checks during
 recovery. Unrelated source package content does not enter consumer history.
 
-Resolution checks the complete requested dependency closure before mutation.
+Resolution checks the complete requested dependency closure and projected lock
+graph before mutation. Local dependency edits cannot hide cycles among pins;
+related dependency pins must be explicitly updated together.
 Repositories are reused within one resolution run. Partial clones and sparse
 checkouts reduce materialized source content where supported, but splitting
 requires source commit/tree history. Package-only network transfer is not
@@ -45,14 +49,19 @@ Before a subtree operation, a pending record stores its package, starting HEAD,
 and intended lock entry. Conflicts leave normal Git conflict files and preserve
 the prior lock. Resolve and stage, then run `gnosis pull --continue`; or use
 `gnosis pull --abort` while the merge is uncommitted. Continuation checks ancestry
-and structure before recording the lock. An already committed merge is never
+and structure before recording the lock. Both automatic completion and
+continuation validate the effective merged dependency graph, retaining the prior
+lock and pending record if the result is invalid. Missing locked packages may
+still be waiting in a multi-package restore. An already committed merge is never
 reset by abort. A stopped multi-package run keeps prior successful packages;
 rerun the original command after recovering its pending package.
 
 `restore` imports missing package directories using exact lock commits without
 consulting branch tips for version selection. It does not overwrite existing
-packages. Source history must retain the locked commits. Ordinary clones of a
-consumer already contain its vendored files.
+packages. Source history must retain the locked commits; the original branch
+name need not exist. Explicit registry source edits apply only when pulling the
+affected package, not when restoring its lock or retaining a dependency pin.
+Ordinary clones of a consumer already contain its vendored files.
 
 Proposals compute a binary-capable diff between the locked package tree and the
 consumer's committed package tree. Only this diff is applied with

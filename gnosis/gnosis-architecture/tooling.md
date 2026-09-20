@@ -11,6 +11,10 @@ sources:
     title: Maintained Go YAML implementation
   - resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
     title: Open Knowledge Format v0.2
+  - resource: ../../internal/workspace/process_unix.go
+    title: Internal Unix process-group cancellation
+  - resource: ../../internal/workspace/process_windows.go
+    title: Internal Windows process-tree cancellation
 ---
 
 # Context
@@ -25,10 +29,20 @@ knowledge package manager.
 # Decision
 
 Use Cobra for command routing, flag validation, help, and shell completions.
-Retain a flat Go package with focused files rather than introduce service,
-database, plugin, or dependency-injection layers. Package metadata is explicit
+Use `cmd/gnosis` for the executable and focused internal packages for CLI routing,
+knowledge formats, and Git-backed workspace workflows. This replaces the initial
+flat layout following the user's request for a clearer folder structure.
+Dependencies flow from CLI to workspace to knowledge; knowledge has no Cobra or
+Git dependency. No service, database, plugin, or dependency-injection layers are
+introduced. Package metadata is explicit
 versioned data, not environment-driven application settings, so Viper adds
 no needed configuration layer and is not included.
+Command groups have separate files under `internal/cli`. Workspace state, skill
+installation, and CODEOWNERS generation have focused files under
+`internal/workspace`. Platform-specific process cancellation uses Go build tags.
+Package scaffold assets live with `internal/knowledge`; distributable agent
+skills remain under `skills/` and are embedded from that canonical location.
+Unit tests are colocated; cross-command workflows live in `tests/integration`.
 
 Use the stable, security-maintained `go.yaml.in/yaml/v3` parser for YAML and
 JSON-shaped management data. Upstream feature development is on v4; this
@@ -44,7 +58,11 @@ adds only the package registry/lock contracts, resolution orchestration,
 validation/index glue, and recoverable workflow metadata.
 
 The CLI uses signal-aware contexts and bounded internal Git/gh subprocess
-timeouts. Explicit native Git passthrough is interactive and follows the caller's
+timeouts. Internal subprocess cancellation terminates owned process groups on
+Unix and uses `taskkill /T` on Windows; pipe draining is bounded. Archive
+cancellation preserves the caller's cancellation error and exit status.
+Partial Git changes and pending recovery metadata are retained, never reset.
+Explicit native Git passthrough is interactive and follows the caller's
 context. Management writes use temporary files and atomic replacement.
 Operational errors are surfaced with nonzero status, not hidden behind empty
 registries or success-shaped defaults.

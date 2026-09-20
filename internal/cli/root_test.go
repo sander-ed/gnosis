@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -28,7 +28,11 @@ func TestRun(t *testing.T) {
 		{name: "positional argument", args: []string{"text"}, wantCode: 2, wantError: "unknown command"},
 		{name: "extra argument", args: []string{"-i", "text", "extra"}, wantCode: 2, wantError: "unknown command"},
 		{name: "missing package name", args: []string{"package", "init"}, wantCode: 2, wantError: "accepts 1 arg"},
-		{name: "missing owner", args: []string{"package", "init", "test"}, wantCode: 2, wantError: "--owner"},
+		{name: "missing owner", args: []string{"package", "init", "test"}, wantCode: 2, wantError: `required flag(s) "owner"`},
+		{
+			name: "empty owner", args: []string{"package", "init", "test", "--owner", ""},
+			wantCode: 2, wantError: "--owner",
+		},
 		{
 			name: "unsafe package", args: []string{"package", "init", "../escape", "--owner", "@test"},
 			wantCode: 2, wantError: "invalid package name",
@@ -39,7 +43,11 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name: "conflicting recovery flags", args: []string{"pull", "--abort", "--continue"},
-			wantCode: 2, wantError: "use --continue or --abort alone",
+			wantCode: 2, wantError: "none of the others can be",
+		},
+		{
+			name: "recovery with names", args: []string{"pull", "--continue", "test"},
+			wantCode: 2, wantError: "without names",
 		},
 	}
 
@@ -57,6 +65,37 @@ func TestRun(t *testing.T) {
 			if got := stderr.String(); (tt.wantError == "" && got != "") ||
 				(tt.wantError != "" && !strings.Contains(got, tt.wantError)) {
 				t.Errorf("stderr = %q, want %q", got, tt.wantError)
+			}
+		})
+	}
+}
+
+func TestFlagConstraintsInCompletion(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		include string
+		exclude string
+	}{
+		{
+			name: "required owner", args: []string{"__complete", "package", "init", "sample", "--"},
+			include: "--owner", exclude: "--description",
+		},
+		{
+			name: "exclusive recovery", args: []string{"__complete", "pull", "--continue", "--"},
+			exclude: "--abort",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run(tc.args, &stdout, &stderr); code != 0 {
+				t.Fatalf("completion exit %d: %s", code, stderr.String())
+			}
+			if tc.include != "" && !strings.Contains(stdout.String(), tc.include) {
+				t.Fatalf("completion omits %s: %s", tc.include, stdout.String())
+			}
+			if strings.Contains(stdout.String(), tc.exclude) {
+				t.Fatalf("completion includes %s: %s", tc.exclude, stdout.String())
 			}
 		})
 	}
