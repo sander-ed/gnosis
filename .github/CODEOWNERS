@@ -1,0 +1,6 @@
+# Keep package ownership changes under the repository owner's review.
+/.github/CODEOWNERS @sander-ed
+
+# BEGIN GNOSIS OWNERS
+/gnosis/gnosis-architecture/ @sander-ed
+# END GNOSIS OWNERS

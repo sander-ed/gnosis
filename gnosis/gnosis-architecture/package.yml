@@ -1,0 +1,7 @@
+gnosis_version: 1
+package: gnosis-architecture
+version: 0.1.0
+description: Goals, decisions, and operational contracts for the gnosis knowledge CLI
+owner:
+    user: '@sander-ed'
+dependencies: []

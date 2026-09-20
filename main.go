@@ -1,38 +1,49 @@
 package main
 
 import (
-	"flag"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := execute(ctx, os.Args[1:], streams{in: os.Stdin, out: os.Stdout, err: os.Stderr})
+	stop()
+	os.Exit(code)
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("gnosis", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	return execute(context.Background(), args, streams{in: os.Stdin, out: stdout, err: stderr})
+}
 
-	var input string
-	flags.StringVar(&input, "input", "", "Text to return")
-	flags.StringVar(&input, "i", "", "Text to return (shorthand for --input)")
-
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
-	}
-	if flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "gnosis: unexpected positional arguments; use --input or -i")
-		return 2
-	}
-
-	if _, err := fmt.Fprintln(stdout, input); err != nil {
-		fmt.Fprintln(stderr, "gnosis:", err)
+func execute(ctx context.Context, args []string, io streams) int {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(io.err, "gnosis:", err)
 		return 1
+	}
+	app := application{cwd: cwd, io: io}
+	cmd := app.command()
+	cmd.SetArgs(args)
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		fmt.Fprintln(io.err, "gnosis:", err)
+		var usage *usageError
+		var gitErr *gitExitError
+		switch {
+		case errors.Is(err, context.Canceled):
+			return 130
+		case errors.As(err, &gitErr):
+			return gitErr.code
+		case errors.As(err, &usage), !app.started:
+			return 2
+		default:
+			return 1
+		}
 	}
 	return 0
 }

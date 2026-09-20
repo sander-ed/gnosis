@@ -1,0 +1,6 @@
+gnosis_version: 1
+schema: frontmatter.schema.json
+index_template: index.tmpl
+required_files: []
+required_headings: []
+max_words: 0
