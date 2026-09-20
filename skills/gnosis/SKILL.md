@@ -22,6 +22,30 @@ Preserve unknown frontmatter keys. Record real evidence for new claims;
 updating content does not mean it has been reverified. Keep each concept's
 nonempty `type`. `index.md` and `log.md` are reserved, not concept filenames.
 
+For scaffolding, use `gnosis new PACKAGE PATH --type TYPE --title TITLE
+--description DESCRIPTION` (short flags: `-T`, `-t`, `-d` respectively).
+Paths are package-relative and `.md` is optional.
+Type defaults to `Reference`; title defaults to a humanized filename. Optional
+`--resource`, repeated `--tag` / `--source`, and `--field KEY=YAML` populate
+frontmatter. Supply only genuine metadata; scaffolding does not establish trust.
+Duplicate metadata fields are errors.
+
+Use `--dir` or a trailing `/` to create a folder with the same metadata flags.
+Folder metadata is retained in `index.yml`; its title and description appear in
+the parent index and its own generated `index.md`. Read optional `index.yml`
+when navigating a folder. Metadata is not inherited by child documents.
+Folder indexes contain no concept frontmatter. Edit `index.yml` and run `index`
+to change folder labels/descriptions; body flags are file-only.
+For noninteractive file authoring, use `--body TEXT`
+or `--body-file PATH` (`-` reads stdin). Body input excludes frontmatter; file
+paths are relative to the selected workspace. No prompts or editor are launched.
+
+`new` refuses overwrites and refreshes generated package indexes without
+fetching, committing, publishing, or changing pins. It reports preserved
+hand-authored ancestor indexes that may need a link. Creating Markdown files
+manually is equally supported; run `index` afterward. Local edits to imported
+packages still need the upstream proposal/review workflow before acceptance.
+
 Use `gnosis index` for generated navigation and `gnosis check` for basic
 structural validation. Neither verifies factual truth. Inspect the Git diff.
 Use ordinary Git to save deliberate local work; gnosis never commits consumer

@@ -69,7 +69,14 @@ gnosis init
 gnosis package platform --owner @my-org/platform --description "Platform knowledge"
 ```
 
-Add concepts using your editor or agent:
+Scaffold a concept, then write its content using your editor or agent:
+
+```sh
+gnosis new platform ownership --title "Service ownership" \
+  --description "How services are assigned to teams."
+```
+
+You can also create an ordinary Markdown file manually. For example:
 
 ```markdown
 ---
@@ -122,6 +129,129 @@ dependencies = []
 `owner` is an accountable identity, not a grant of permissions or a claim of
 approval. Prefer the source repository's actual GitHub user or team. Gnosis does
 not verify account membership.
+
+## Author knowledge
+
+`new` creates content **inside an existing package**. Files are the default;
+`.md` is optional and parent directories are created as needed:
+
+```sh
+gnosis new beno-migrering migration-checklist \
+  --type Playbook \
+  --title "Migration checklist" \
+  --description "Steps and checks for a migration."
+
+gnosis new beno-migrering migrations --dir \
+  -T Playbook -t "Migrations" -d "Migration guidance"
+gnosis new beno-migrering migrations/source-mapping.md --type Reference
+```
+
+The first command creates `gnosis/beno-migrering/migration-checklist.md`.
+The directory command creates `gnosis/beno-migrering/migrations/index.md`
+and `index.yml` containing its metadata.
+A trailing `/` also selects directory mode, so `new beno-migrering migrations/`
+is equivalent to `new beno-migrering migrations --dir`.
+
+Folders accept the same metadata flags as files. Their title and description
+appear in the parent index just like a document's:
+
+```sh
+gnosis new beno-migrering snowflake/ \
+  -T "Best Practise" -t "Snowflake" \
+  -d "Guidance when the target platform is Snowflake"
+```
+
+The package index contains:
+
+```markdown
+* [Snowflake](snowflake/index.md) - Guidance when the target platform is Snowflake
+```
+
+Folder metadata is stored in `snowflake/index.yml`, a Gnosis extension alongside
+the standard OKF index. The generated `snowflake/index.md` uses the title as its
+heading and includes the description. Reserved nested OKF indexes remain free
+of frontmatter. Type, tags, sources, and custom fields are retained in
+`index.yml`, not discarded or inherited by child documents.
+
+You can edit `index.yml` manually and run `gnosis index` to update navigation.
+Folders without that file still work and use their directory name as the label.
+`--body` and `--body-file` remain file-only: folder indexes are generated from
+their metadata and children.
+
+### Metadata and content
+
+The same fields go into document frontmatter or folder `index.yml`.
+
+| Flag | Metadata |
+| --- | --- |
+| `-T`, `--type TYPE` | `type`; defaults to `Reference`, including support for custom types |
+| `-t`, `--title TEXT` | `title`; defaults to the file/folder name with hyphens/underscores replaced by spaces and the first letter capitalized |
+| `-d`, `--description TEXT` | `description`, used in navigation |
+| `--resource URI` | `resource`, the asset represented by the concept |
+| `--tag TAG` | Adds an item to `tags`; repeat the flag for multiple tags |
+| `--source RESOURCE` | Adds `{resource: ...}` to `sources`; repeat for multiple sources |
+| `--field KEY=YAML` | Sets a custom or additional top-level field using a YAML value |
+
+The common flags are encoded as strings, so punctuation and multiline
+descriptions are safely serialized. `--field` also supports numbers, mappings,
+and lists; quote its argument for the shell. For example:
+
+```sh
+gnosis new beno-migrering source-mapping \
+  --tag migration --tag sql \
+  --source /evidence.md \
+  --field 'status=draft' \
+  --field 'custom={region: eu}'
+```
+
+A field cannot be supplied twice, including through both a named flag and
+`--field`. Default type/title values apply only when not supplied. No timestamps,
+verification, sources, or factual prose are invented.
+
+By default, a concept contains its frontmatter and a heading using its title.
+There are three equally supported authoring modes:
+
+| Mode | Workflow |
+| --- | --- |
+| Human using an editor | Run `new`, then edit the created file normally |
+| Agent or script | Supply flags and `--body`, or provide Markdown through `--body-file PATH` / `--body-file -` |
+| Fully manual | Create valid OKF files in an editor, then run `index` and `check` |
+
+```sh
+# Literal Markdown body.
+gnosis new beno-migrering observation --body "An observation with supporting evidence."
+
+# Body from a file, relative to the selected workspace (-C).
+gnosis new beno-migrering findings --body-file draft.md
+
+# Body from stdin; no prompt or editor is launched.
+printf '# Findings\n\nEvidence-backed content.\n' |
+  gnosis new beno-migrering findings-from-agent --body-file -
+```
+
+Body input is Markdown **without frontmatter** and is preserved as provided.
+`--body` and `--body-file` are mutually exclusive. File/stdin bodies must be
+UTF-8 and fit the existing file-size limit.
+
+`new` works on both local and imported packages without contacting their
+sources. It refreshes the affected package's generated indexes, never
+overwrites an existing destination, and leaves the manifest, lock, and Git
+staging unchanged. Hand-authored indexes are preserved; the command reports
+ancestor indexes that may need a navigation link added manually.
+
+Use the commands according to their purpose:
+
+| Command | When to use it |
+| --- | --- |
+| `new` | Create a document or navigation directory and refresh its package's indexes |
+| `index` | Refresh local navigation after editing or adding files manually; no fetching |
+| `check` | Inspect basic OKF/package structure without modifying knowledge |
+| `sync` / `sync --update` | Restore imported packages at locked commits / merge newer upstream knowledge |
+
+Sync rebuilds indexes for imported packages as part of installation; it is not
+the authoring command for locally owned packages. No authoring mode enforces a
+custom package schema or verifies factual accuracy. Run `check`, inspect the
+files and Git diff, and follow the package's review conventions.
 
 ## Install and collaborate
 
@@ -288,13 +418,15 @@ Unrelated local findings remain local.
 
 `check` validates UTF-8 Markdown, concept YAML mappings with a nonempty string
 `type`, reserved-index frontmatter placement, and package/dependency structure.
+It also checks folder `index.yml` mappings and their type/title/description fields.
 Unknown concept types and fields are accepted. Broken links are allowed.
 It is a **basic structural check**, not a full validator of every optional OKF
 metadata family, custom schemas, factual accuracy, freshness, or verification.
 
-`index` reads titles/descriptions to generate deterministic nested indexes with
+`index` reads document frontmatter and optional folder `index.yml` titles and
+descriptions to generate deterministic nested indexes with
 escaped labels and encoded links. It never changes concept bytes. Missing indexes
-and indexes carrying the gnosis marker are managed; hand-authored indexes are
+and indexes carrying the current or previous gnosis marker are managed; hand-authored indexes are
 preserved. To opt a hand-authored index into generation, move it aside first.
 
 Copy [the agent skill](skills/gnosis/SKILL.md) into your agent's skill directory
