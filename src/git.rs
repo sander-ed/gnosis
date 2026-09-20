@@ -6,7 +6,8 @@ use std::process::{Command, Output};
 use anyhow::{Context, Result, bail, ensure};
 use tempfile::TempDir;
 
-use crate::model::{self, MAX_FILE, MAX_TREE, Source, Tree};
+use crate::metadata::{self, Source};
+use crate::tree::{self, MAX_FILE, MAX_TREE, Tree};
 
 fn command(directory: &Path, arguments: &[&str], isolated: bool) -> Result<Output> {
     let mut command = Command::new("git");
@@ -107,7 +108,7 @@ impl Store {
     }
 
     pub fn revision(&mut self, source: &Source) -> Result<String> {
-        model::validate_source(source)?;
+        metadata::validate_source(source)?;
         let repository = self.repository(&source.repository)?;
         let revision = format!("{}^{{commit}}", source.reference);
         let bytes = run(
@@ -157,7 +158,7 @@ pub fn tree_at(repository: &Path, revision: &str, directory: &str) -> Result<Tre
     {
         let entry = std::str::from_utf8(entry)?;
         let (metadata, name) = entry.split_once('\t').context("invalid Git tree entry")?;
-        model::safe_path(name)?;
+        tree::safe_path(name)?;
         let fields: Vec<_> = metadata.split(' ').collect();
         ensure!(
             fields.len() == 3 && fields[0] == "100644" && fields[1] == "blob",
@@ -188,7 +189,7 @@ fn commit_snapshot(repository: &Path, tree: &Tree, message: &str) -> Result<()> 
             fs::remove_file(entry.path())?;
         }
     }
-    model::write_tree(repository, tree)?;
+    tree::write_tree(repository, tree)?;
     run(repository, &["add", "--all", "--force"], true)?;
     run(
         repository,
@@ -291,7 +292,7 @@ pub fn prepare(
             "source package is not a regular directory"
         );
         fs::remove_dir_all(&destination)?;
-        model::write_tree(&destination, content)?;
+        tree::write_tree(&destination, content)?;
         run(
             output,
             &["add", "--force", "--", &format!("gnosis/{package}")],

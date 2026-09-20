@@ -493,5 +493,8 @@ cargo fmt --check
 
 Integration tests use temporary local Git repositories, not a hosting account.
 
+See [Rust CLI architecture](ARCHITECTURE.md) for the code map, design rationale,
+and instructions for adding commands.
+
 The current design is also documented in the
 [architecture knowledge package](gnosis/gnosis-architecture/index.md).
