@@ -5,4 +5,5 @@
 /.github/
 /skills/*
 !/skills/gnosis/
-PLAN.md
+gnosis.lock
+Cargo.lock
