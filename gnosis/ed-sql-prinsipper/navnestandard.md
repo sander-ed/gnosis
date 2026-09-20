@@ -10,3 +10,5 @@ tags:
 
 ## Kommandoer
 Alle SQL kommandoer skal være `lowercase`.
+
+Jeg tror jeg har noe å komme med her.

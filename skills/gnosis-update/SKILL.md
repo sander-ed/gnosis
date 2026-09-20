@@ -25,7 +25,8 @@ Create entries with `gnosis new PACKAGE PATH`. Paths are package-relative and
 `.md` is optional. Use `--type`, `--title`, and `--description` as needed; type
 defaults to `Reference` and title to a humanized filename. `--resource`, repeated
 `--tag` and `--source`, and `--field KEY=YAML` add metadata. Duplicate fields are
-rejected.
+rejected. Give your best efforts to keep a gnosis package consistant in granularity
+for these extra fields.
 
 Use `--body TEXT` or `--body-file PATH` for document bodies without frontmatter;
 `--body-file -` reads stdin. File paths are workspace-relative. A trailing `/`

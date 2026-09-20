@@ -3,8 +3,5 @@
 /.gnosis/
 /.agents/
 /.github/
-/skills/*
-!/skills/gnosis-navigate/
-!/skills/gnosis-update/
 gnosis.lock
 Cargo.lock
