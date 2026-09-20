@@ -1,6 +1,7 @@
 # Keep package ownership changes under the repository owner's review.
 /.github/CODEOWNERS @sander-ed
 
-# BEGIN GNOSIS OWNERS
+# Package ownership is maintained manually.
 /gnosis/gnosis-architecture/ @sander-ed
-# END GNOSIS OWNERS
+/gnosis/platform/ @sander-ed
+/gnosis/beno-migrering/ @sander-ed

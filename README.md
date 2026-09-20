@@ -1,326 +1,365 @@
-# gnosis
+# Gnosis
 
-A Go CLI for Git-backed knowledge packages. Agents author the knowledge; gnosis
-manages discovery, package metadata, dependencies, validation, indexes, and
-source-repository proposals. Each direct child directory of `gnosis/` is an
-[Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
-bundle with one accountable owner.
+A small package manager for collaborative [OKF 0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+knowledge. Git repositories publish named packages. Projects install editable
+copies, pin their upstream commits, and propose improvements back to the source.
 
-## Install
+Gnosis is written in Rust. This implementation replaces the earlier Go
+experiment; there is no Go toolchain dependency or compatibility layer for its
+commands and YAML management files.
 
-Requires Go 1.27.1+, Git with `git subtree` and sparse-checkout support, and a
-configured Git author identity. GitHub CLI (`gh`) is needed only for publishing
-pull requests. Git SSH keys and credential helpers handle private repositories;
-gnosis does not store credentials. GitHub Enterprise works through Git and
-`gh auth login --hostname HOST`.
+## Design decisions
+
+The design follows the requirements clarified during the rewrite:
+
+| Requirement | Decision |
+| --- | --- |
+| Several packages from different locations in one project | Named Git sources, one `gnosis/` directory, one manifest and lock |
+| Versions indicate freshness, not compatibility | Exact Git commit pins; no semver or PubGrub, and no release tags required |
+| Projects can edit their own installed knowledge immediately | Ordinary vendored files; uncommitted edits are supported |
+| The original business owner approves returned knowledge | Prepare a source branch; repository review rules control acceptance |
+| Package schemas are entirely user-defined | Preserve arbitrary non-executable regular files; no schema/template engine |
+| CLI handles OKF metadata and indexes, not knowledge authoring | Check basic structure and read metadata to generate indexes; never rewrite concept frontmatter or prose |
+| Agents need ordinary navigation, not a custom runtime | Markdown, nested indexes, and one optional agent skill |
+
+From [uv](https://docs.astral.sh/uv/concepts/projects/sync/) we borrow explicit
+requirements, exact locks, deliberate upgrades, and separation of source
+selection from installation. [PubGrub](https://github.com/pubgrub-rs/pubgrub)
+solves compatibility constraints; these requirements only need graph traversal.
+Adding a solver without a compatibility model would make this proof of concept
+larger without improving it.
+
+Installed content is intentionally editable, unlike a conventional immutable
+package cache. The lock records the **upstream baseline**, not a checksum of local
+knowledge. Consumer Git records local work and approval of incoming diffs.
+Source Git records canonical content and approval of contributions. These are
+two different reviews.
+
+## Build
+
+Requires a recent stable Rust toolchain and Git 2.38+ (`merge-tree --write-tree`).
+Gnosis currently targets macOS and Linux. It uses the installed Git CLI and existing Git
+SSH/credential configuration; it does not store credentials.
 
 ```sh
-go build -o bin/gnosis ./cmd/gnosis
-./bin/gnosis --help
-# Or install into GOBIN / GOPATH/bin (which must be on PATH):
-go install ./cmd/gnosis
+brew install rust                 # macOS, if needed
+cargo build --locked
+target/debug/gnosis --help
+
+# Optional: install the executable onto PATH.
+cargo install --path . --locked
 ```
 
-Use `bin/gnosis`, not `go build -o gnosis`: `gnosis/` is the knowledge directory.
-The old `--input` / `-i` echo flags remain available, but invoking gnosis without
-arguments now displays command help. `--version` reports the build version;
-releases can set it with `-ldflags "-X main.version=v1.0.0"`.
+Commands below assume the executable is on PATH as `gnosis`. Use
+`gnosis -C /path/to/project COMMAND` to select a project explicitly. The CLI does
+not search parent directories. If the former Go executable is still installed
+elsewhere on PATH, remove it or use `target/debug/gnosis` explicitly.
 
-## Author a knowledge base
+This repository is already a knowledge workspace. Its `gnosis.toml` publishes
+the architecture package and the locally authored `beno-migrering` package;
+do not run `init` over it. Run `cargo run -- check` to inspect it.
 
-Inside an existing Git repository:
+## Publish a source
+
+Start in a new or existing source Git repository, without an existing `gnosis/`
+directory:
 
 ```sh
 gnosis init
-gnosis package init platform --owner @my-org/platform --description "Platform knowledge"
-# A person is also a valid single owner:
-gnosis package init architecture --owner @my-user --dependency platform
+gnosis package platform --owner @my-org/platform --description "Platform knowledge"
 ```
 
-`init` creates `gnosis.yml`, an empty `registry.yml`, `gnosis.lock`, the root
-index, and three meta skills under `.agents/skills/`. Use `--skills=false` to
-skip skills or `gnosis skills` to install them later. Existing data and customized
-skills are never overwritten. Package initialization does not invent concepts.
-
-```text
-gnosis/
-  gnosis.yml
-  registry.yml
-  gnosis.lock
-  index.md
-  platform/
-    package.yml
-    standard.yml
-    frontmatter.schema.json
-    index.tmpl
-    index.md
-    concepts/
-      services.md
-```
-
-A manifest can be `package.yml`, `package.yaml`, or `package.json`, but not more
-than one. YAML/JSON metadata rejects unknown keys, duplicate keys, and multiple
-documents. Concept frontmatter, in contrast, preserves and accepts unknown keys.
-
-```yaml
-gnosis_version: 1
-package: platform
-version: 1.0.0
-description: Platform knowledge
-owner:
-  team: "@my-org/platform" # Or user: "@my-user", never both
-dependencies: []
-```
-
-Names are lowercase letters/digits separated by single hyphens, at most 64
-characters. Every package directory must match its manifest name. Owner handles
-are explicit GitHub identities, not unqualified business role names. Versions
-are descriptive strings; dependencies resolve by registry name and are pinned
-to Git commits, **not** solved using semantic-version ranges.
-
-## Package-local standards
-
-Every package carries its own editable `standard.yml`:
-
-```yaml
-gnosis_version: 1
-schema: frontmatter.schema.json
-index_template: index.tmpl
-required_files: []
-required_headings: ["# Summary"]
-max_words: 600
-```
-
-`schema` points to a JSON Schema (default: draft 2020-12) for concept frontmatter.
-`required_headings` requires exact heading lines in each concept's body.
-`max_words` counts whitespace-separated body tokens, including Markdown; zero
-disables the limit. `required_files` lists package-relative files. Paths and
-schema references must remain inside the package; remote schema fetching and
-symlinks are not supported. Package files are limited to 16 MiB each, with a
-256 MiB aggregate import limit. Discovery metadata and generated management
-files also have a 16 MiB limit; oversized registry updates leave existing data
-unchanged.
-
-The baseline OKF rule always requires a nonempty string `type`. Optional trust,
-provenance, and lifecycle fields are not required by the default policy. Unknown
-types, additional fields, and broken links are allowed. A stricter schema is a
-**package policy**, not an extra OKF requirement.
+Add concepts using your editor or agent:
 
 ```markdown
 ---
 type: Reference
-title: Services
-description: How the platform services relate.
+title: Service ownership
+description: How services are assigned to teams.
+sources:
+  - resource: https://example.com/ownership-policy
 ---
-# Summary
+# Service ownership
 
-Agent-authored, source-backed knowledge belongs here.
+Knowledge and evidence belong here.
 ```
+
+Save that as `gnosis/platform/ownership.md`, then:
 
 ```sh
-gnosis index platform
-gnosis validate platform
-gnosis index       # All packages and the root directory index
-gnosis validate    # All packages, registry, lock and dependency graph
+gnosis index
+gnosis check
+git add gnosis.toml gnosis.lock gnosis
+git commit -m "Publish platform knowledge"
+# Review and push through the source repository's ordinary workflow.
 ```
 
-`index.tmpl` is a Go text template with `.Root`, `.Title`, `.Description`, and
-`.Entries` (each has `.Title`, `.Description`, `.URL`). Entries are escaped and
-ordered deterministically. Retain the generated-file marker from the scaffold.
-Root package indexes may contain only `okf_version` frontmatter; nested indexes
-and `log.md` do not contain frontmatter. `log.md` date headings use
-`## YYYY-MM-DD`. Indexing never rewrites concept metadata or prose.
+Creating a package lists it in `gnosis.toml`:
 
-Hand-authored package indexes require explicit `gnosis index NAME --force`
-before replacement. A hand-authored root `gnosis/index.md` must be moved aside
-explicitly. Missing indexes are allowed by validation, as OKF permits.
-The referenced index template, however, must exist, be a regular file, and have
-valid Go template syntax; validation and imports enforce this before indexing.
+```toml
+format = 1
+packages = ["platform"]
 
-## Discover and install packages
+[sources]
+
+[dependencies]
+```
+
+Only names in `packages` are published by that repository. Imported dependencies
+are not implicitly republished. There is no registry server or separate
+publication command: a package becomes discoverable when its source ref
+contains the catalog entry and package files.
+
+The package itself has `gnosis/platform/package.toml`:
+
+```toml
+name = "platform"
+owner = "@my-org/platform"
+description = "Platform knowledge"
+dependencies = []
+```
+
+`owner` is an accountable identity, not a grant of permissions or a claim of
+approval. Prefer the source repository's actual GitHub user or team. Gnosis does
+not verify account membership.
+
+## Install and collaborate
+
+In a consumer project:
 
 ```sh
-gnosis registry add git@github.com:my-org/knowledge.git --ref main --path gnosis
-gnosis add                 # Sorted discovery list
-gnosis add --json          # Machine-readable registry
-git add gnosis
-git commit -m "Configure knowledge registry"
-gnosis add platform       # Imports platform and its transitive dependencies
-gnosis list --json        # Installed manifests
+gnosis init
+gnosis source team git@github.com:my-org/knowledge.git --ref main
+gnosis source public https://github.com/example/knowledge.git --ref main
+gnosis list
+gnosis add platform --source team
 ```
 
-Discovery reads direct-child manifests and an optional `registry.yml`,
-`registry.yaml`, or `registry.json` at `--path`. Use `--path .` for bundles at the
-repository root, or a specific package path for a single bundle. Re-running
-`registry add` refreshes descriptions and discoveries; it does not silently
-remove entries or redirect an existing name to a different source.
-
-For a central registry, use `gnosis registry import registry.json` (YAML also
-works). Its top-level shape is a mapping:
-
-```yaml
-platform:
-  description: Platform knowledge
-  owner: "@my-org/platform"
-  source:
-    type: git
-    repository: git@github.com:my-org/knowledge.git
-    path: gnosis/platform
-    default_branch: main
-```
-
-Source paths are relative to the source repository root. A registry discovered
-from Git may use `repository: .` for that same repository. An imported file must
-use explicit Git URLs or absolute local repository paths. Registry definitions
-must agree with any manifests discovered at the same location. Discovery is a
-local snapshot, not a hosted registry service.
-
-Imports use native Git subtrees **with package history**, not nested repositories
-or submodules. Dependency cycles, missing names, bad manifests, and invalid
-content are detected before imports begin. Only the selected packages and their
-dependencies enter the consumer working tree/history. Git uses partial clone
-and sparse checkout where supported, but subtree splitting can still require
-repository-wide commit/tree metadata; this is not a guarantee of
-package-only network transfer.
-
-## Update, restore, and recover
-
-Commit your changes before importing, updating, restoring, or proposing.
-Gnosis never automatically stashes, resets, or force-pushes.
-
-```sh
-gnosis pull platform       # Update this imported package
-gnosis pull                # Update all imported packages
-gnosis restore             # Install missing packages at exact locked revisions
-gnosis status --short
-```
-
-`gnosis.lock` records each package's source, source commit, split subtree commit,
-version, and dependencies. Existing dependency pins stay fixed unless explicitly
-pulled (or included in `pull` without names). An explicit, committed registry
-source edit is honored by the next pull of that package, including a changed
-repository, path, or branch. Unselected dependency pins remain unchanged;
-restore always uses the locked source, not an edited registry.
-Imports and successful updates
-create subtree commits and separate lock/index commits. A Git clone of a consumer
-already contains its packages; restore is for missing package directories.
-Restore does not reset existing packages or discard local edits. Source history
-must still make locked commits available, but the original branch name need not
-exist.
-
-Updates use real Git merges:
-
-```sh
-# After a conflicting pull:
-git status
-# Resolve the conflict files, then:
-git add gnosis/platform
-gnosis pull --continue
-# Or abandon the still-uncommitted merge:
-gnosis pull --abort
-```
-
-The lock remains unchanged until that package merge succeeds. A pending operation
-is recorded under the Git directory and blocks other package mutations.
-Both automatic completion and continuation validate the merged dependency graph
-before advancing the package lock. An invalid graph retains the old lock and
-pending record: repair the manifests, then continue.
-Projected lock dependencies are also checked before imports or updates begin.
-If updating only one package would create a cycle among pins, pull the affected
-dependencies together; local manifest edits do not override source pins.
-Continuation validates the result and commits the lock/index. Once the merge is
-committed, finish with `--continue`; abort will not reset commits. If a
-multi-package operation stops, earlier successful packages remain committed;
-finish/abort the pending package, then rerun the original command for the rest.
-A crash can leave `gnosis/operation.lock` inside the Git directory: inspect its
-PID and ensure no operation is running before manually removing that exact file.
-Cancellation terminates internal Git/`gh` process trees on Unix and Windows and
-bounds pipe draining. An interrupted Git command can leave partial staged
-changes, including a hook interrupted before Git records a merge. Inspect
-`git status` and the retained pending operation; gnosis never resets those
-changes automatically.
-
-`gnosis rebase -X ours origin/main` and `gnosis merge ...` pass arguments to Git
-at the **consumer repository root**. They affect the whole repository, not a
-single package. Native Git remains available for all other commands.
-
-## Propose source changes
-
-```sh
-# Edit concepts, regenerate indexes, validate, and commit in the consumer.
-gnosis propose platform --title "Clarify service ownership"
-```
-
-By default, this prepares a retained checkout under the consumer Git directory's
-`gnosis/proposals/`. It applies only the selected package's committed changes,
-using a three-way patch against the latest source branch, and creates a commit
-on a `gnosis/...` branch. Unrelated consumer files are never proposed. Nothing
-is pushed. Conflicting proposals retain their checkout for ordinary Git recovery.
-
-```sh
-gnosis propose platform --publish --title "Clarify service ownership" --body "Evidence and rationale"
-```
-
-`--publish` pushes a new proposal branch and uses `gh pr create`. It requires
-write access to the source repository plus authenticated `gh`; it never pushes
-to the source default branch or merges the PR. If PR creation fails after push,
-the error identifies the retained checkout so you can retry `gh pr create`.
-For read-only upstream access, prepare locally and use Git/`gh` to fork and
-publish from that checkout; automatic fork orchestration is not implemented.
-Locally authored packages use their repository's normal branch/PR workflow.
-
-## Ownership and agent skills
-
-`gnosis codeowners` maintains a marked block in the effective GitHub CODEOWNERS
-file, preserving surrounding rules. Only locally authored packages receive
-rules; imported package ownership is enforced in its **source** repository.
-Later CODEOWNERS rules win, so review any rules following the generated block.
-
-On GitHub, separately enable required code-owner reviews, require your validation
-checks, restrict bypasses, and protect CODEOWNERS itself. Owners must have write
-access, and teams must be visible. A CODEOWNERS file alone does not require
-approval. The CLI does not change server-side repository settings.
-
-Bundled [Agent Skills](https://agentskills.io/specification):
-`gnosis-navigate` (progressive discovery and evidence), `gnosis-update`
-(package-local authoring policy), and `gnosis-cli` (operations and recovery).
-They contain no business-specific knowledge. Skills are instructions, not
-permission to publish changes or execute package-provided code.
-
-The [gnosis-architecture package](gnosis/gnosis-architecture/index.md) records
-the confirmed requirements, design decisions, and primary research sources.
-
-## Development
+Result:
 
 ```text
-cmd/gnosis/                  Executable entry point and signal handling
-internal/cli/                Cobra commands, I/O, and exit codes
-internal/knowledge/          Manifests, policies, OKF validation, and indexes
-internal/knowledge/assets/   Embedded package scaffolding
-internal/workspace/          Git operations, registry, sync, proposals, and ownership
-internal/testutil/           Shared test fixtures and subprocess helpers
-tests/integration/           End-to-end CLI workflows
-skills/                     Canonical, embedded agent skill definitions
-gnosis/                     The project's knowledge base
+gnosis.toml                   # Published packages, sources, direct imports
+gnosis.lock                   # Source locations, exact commits, dependency graph
+gnosis/
+  index.md                    # Navigation across packages
+  platform/
+    package.toml
+    index.md
+    ownership.md
+.gnosis/                      # Ignored operation locks and transient write staging
 ```
 
-Unit tests live beside their packages. CLI workflows cross the public command
-interface in `tests/integration/`. Dependency direction is
-`cmd/gnosis -> cli -> workspace -> knowledge`; the CLI also uses knowledge
-contracts directly. Knowledge-format code does not depend on Cobra or Git.
+Commit `gnosis.toml`, `gnosis.lock`, and `gnosis/` to the consumer repository.
+A plain Git clone then has the knowledge immediately. Alternatively, a project
+with just the committed manifest and lock can reconstruct packages with
+`gnosis sync`. Locked commits must still be obtainable from the source.
+
+Edit installed concepts directly. Add, correct, reorganize, or delete knowledge
+as your package's own conventions permit. No append-only or protected-section
+policy is imposed. Custom schemas and additional metadata belong to the package
+and are enforced by your own tools, not by this CLI.
 
 ```sh
-go test ./...
-go vet ./...
-go build -o bin/gnosis ./cmd/gnosis
-bin/gnosis validate
+gnosis index
+gnosis check
+git diff
+# Commit locally when appropriate. No upstream approval is needed for local work.
 ```
 
-Integration tests use temporary local repositories; they cover transitive
-imports, repeated pulls, pinned restores, native conflict recovery, source
-proposal isolation, and publication via a stub `gh` without contacting GitHub.
-Use `gnosis completion --help` for shell completion generation. Normal output
-goes to stdout and errors to stderr. Exit codes: 0 success, 1 operation failure,
-2 usage error, 130 cancellation; Git passthrough preserves Git's exit code.
-Place `-C DIRECTORY` before passthrough commands so it selects the repository
-rather than becoming a native Git argument.
+### Sync and version provenance
+
+```sh
+gnosis sync                   # Keep existing pins; restore missing packages
+gnosis sync --update          # Refresh all imported packages and merge local edits
+git diff                     # Review knowledge changes AND lock changes
+```
+
+Ordinary sync does not advance unchanged pins just because a source has newer
+commits. Manifest/source changes cause dependency resolution; existing pins are
+retained where their source selection is unchanged. Updating is workspace-wide
+currently, not per-package.
+
+For each imported package the lock records the source alias, repository, ref,
+exact commit, and dependency names. This records the package versions present
+when a project implements something. Commit the lock alongside that
+implementation. Authors of packages should similarly commit the locks in their
+source projects to retain their authoring context.
+
+Dependencies are names in `package.toml`; they mean "make this other knowledge
+available", not "guarantee its semantic compatibility". Consumer resolution does
+not import or impose the source project's lock. Each consumer chooses its own
+pins. Cyclic references are allowed because packages contain no build/install
+steps.
+
+For a dependency published by several configured sources, gnosis fails rather
+than guessing. Select it explicitly with:
+
+```sh
+gnosis add core --source team
+gnosis add platform --source team
+```
+
+That direct selection also controls transitive references to `core`. One name
+identifies one installed package. Existing locked source selections are retained;
+public sources do not silently replace private ones. Sources mentioned inside a
+downloaded project's own manifest are never automatically followed. An unavailable
+configured source is an error, not a reason to fall back to another.
+
+For locally authored packages, declare dependencies in `package.toml` and install
+external ones with `gnosis add`; other locally authored packages can be referenced
+directly. `check` requires every declared dependency to exist.
+
+### Merging local and upstream knowledge
+
+Sync computes:
+
+```text
+base     = package at its previous locked upstream commit
+local    = current editable package, including uncommitted changes
+upstream = package at the newly selected source commit
+
+result   = Git three-way merge(base, local, upstream)
+```
+
+Git performs merges in an isolated temporary repository. There is no consumer
+subtree history, automatic stash, consumer commit, index staging, or force reset.
+Generated indexes are removed from merge inputs and rebuilt afterward;
+hand-authored indexes participate in the merge like other content.
+
+All selected packages are prepared and checked before writing the workspace. A
+merge conflict or invalid document leaves all packages, the manifest, and the
+lock unchanged. Git's conflict report names the affected files. Reconcile local
+content against the source manually, or first preserve the local work elsewhere,
+then retry. Gnosis deliberately has no `--continue`, `--abort`, automatic conflict
+resolution, or persistent conflict editor.
+
+An unused dependency is removed only if it has no local changes relative to its
+old baseline. Otherwise sync stops and asks you to preserve that work. Removing
+an entire installed directory is treated as a request to restore it, not as a
+dependency removal; edit `[dependencies]` in the manifest to remove a direct
+requirement.
+
+### Return knowledge to its owner
+
+```sh
+gnosis propose platform --output ../platform-proposal
+git -C ../platform-proposal diff --cached
+```
+
+This creates a normal source-repository checkout and a `gnosis/platform` branch
+based on the current configured source ref. It applies only the selected
+package's delta from its locked baseline, using the same three-way merge.
+Changes are staged, **not committed or pushed**. The consumer remains untouched.
+
+Inspect the staged diff for correctness and confidentiality. Then use ordinary
+Git and your hosting provider's PR workflow:
+
+```sh
+git -C ../platform-proposal commit -m "Propose platform knowledge improvement"
+git -C ../platform-proposal push -u origin gnosis/platform
+# Open a PR and request the source package owner's review.
+```
+
+For public upstreams without write access, point the proposal checkout at your
+fork and open a PR from it. Gnosis does not automate forks or PR creation.
+The source branch is never updated by `gnosis propose`.
+
+On GitHub, source maintainers must configure package CODEOWNERS rules **and**
+required owner reviews/branch protection, protect those rules, and restrict
+bypasses. The manifest owner string and a CODEOWNERS file alone cannot enforce
+approval. Publication to Git is the permission mechanism for team, organization,
+and public sharing; no separate access-control layer is implemented here.
+
+Package-only diffs prevent unrelated files from being included, but cannot
+detect confidential information written into that package's prose. A human
+review before pushing is the privacy gate. Do not allow an agent to auto-push
+proposals to public sources.
+
+After an approved contribution is merged:
+
+```sh
+gnosis sync --update
+```
+
+Already-incorporated local changes converge without being appended twice.
+Unrelated local findings remain local.
+
+## OKF and agent behavior
+
+`check` validates UTF-8 Markdown, concept YAML mappings with a nonempty string
+`type`, reserved-index frontmatter placement, and package/dependency structure.
+Unknown concept types and fields are accepted. Broken links are allowed.
+It is a **basic structural check**, not a full validator of every optional OKF
+metadata family, custom schemas, factual accuracy, freshness, or verification.
+
+`index` reads titles/descriptions to generate deterministic nested indexes with
+escaped labels and encoded links. It never changes concept bytes. Missing indexes
+and indexes carrying the gnosis marker are managed; hand-authored indexes are
+preserved. To opt a hand-authored index into generation, move it aside first.
+
+Copy [the agent skill](skills/gnosis/SKILL.md) into your agent's skill directory
+(for example `.agents/skills/gnosis/SKILL.md`). Skill installation is deliberately
+manual. It covers navigation, local editing, evidence, and the approval workflow.
+No LLM, agent SDK, search server, or embedding database is required.
+
+## Internal architecture
+
+One crate, four modules:
+
+| Module | Interface and responsibility |
+| --- | --- |
+| `main` | CLI arguments, dispatch, diagnostics |
+| `model` | Manifest/lock/package contracts, file trees, basic OKF checks, derived indexes |
+| `git` | Exact Git snapshots, native three-way merging, source checkout preparation |
+| `workspace` | Source discovery, dependency closure, operation sequencing, safe writeback |
+
+The useful seam is a package file tree plus its upstream revision. Git details
+stay behind that interface. There is no backend trait with one implementation,
+plugin system, service layer, or async runtime. A solver or persistent cache can
+be introduced later if real workloads justify it.
+
+`git` preserves ordinary authentication for source fetching. Temporary merge
+repositories disable global/system Git configuration, hooks, and filesystem
+monitor commands. Package scripts, executors, and schema code are never run.
+Only regular, non-executable package files are supported; symlinks and submodules
+are rejected, as are path collisions on case-insensitive filesystems. Limits are
+16 MiB per file and 256 MiB per package/local knowledge tree.
+
+Workspace mutations take an OS file lock, stage replacement files on the same
+filesystem, and roll back ordinary write failures. They do not provide
+filesystem-wide atomicity or a power-loss durability guarantee. A process crash
+can retain a `.gnosis/transaction-*` directory; the next command stops rather
+than guessing. Its `paths.txt` maps numeric suffixes to workspace paths,
+`old-N` contains previous content, and `new-N` contains prepared content not yet
+installed. Inspect and recover those exact paths, then move the transaction
+directory outside `.gnosis/` before retrying. Do not remove the entire state
+directory to bypass recovery.
+
+Do not edit workspace files concurrently with gnosis operations. Pre-write
+checks catch changes during preparation, but cannot lock an editor or ordinary
+Git commands.
+
+## Deliberate limits
+
+No hosted registry, semver solving, release automation, migration, global cache,
+JSON output, custom validation engine, automated publishing, or Git command
+wrappers. Source repositories use the fixed `gnosis/NAME/package.toml` layout
+and one selected ref per source. Independently released subpackages/tags and
+multiple installations of the same name are not supported.
+
+Sources are cloned into temporary bare repositories per command, deduplicated
+within that command. Only selected package files are installed, but Git fetching
+is **not** package-only: source history may be downloaded. There is no offline
+restore without available Git objects. Plain vendored files remain readable
+without gnosis or network access.
+
+```sh
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+cargo fmt --check
+```
+
+Integration tests use temporary local Git repositories, not a hosting account.
+
+The current design is also documented in the
+[architecture knowledge package](gnosis/gnosis-architecture/index.md).

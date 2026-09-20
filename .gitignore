@@ -1,3 +1,8 @@
 /bin/
-/gnosis/gnosis
-/.agents/skills/
+/target/
+/.gnosis/
+/.agents/
+/.github/
+/skills/*
+!/skills/gnosis/
+PLAN.md

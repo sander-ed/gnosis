@@ -1,8 +1,0 @@
-gnosis_version: 1
-schema: frontmatter.schema.json
-index_template: index.tmpl
-required_files: []
-required_headings:
-    - "# Context"
-    - "# Decision"
-max_words: 900

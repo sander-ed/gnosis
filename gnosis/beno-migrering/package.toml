@@ -1,0 +1,4 @@
+name = "beno-migrering"
+owner = "@sander-ed"
+description = "Testbeskrivelse av migrering"
+dependencies = []
