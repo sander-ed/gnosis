@@ -24,67 +24,113 @@ fn login(value: &str) -> Result<String> {
             && user
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'),
-        "invalid GitHub login {value:?}; use individual usernames, not emails or teams"
+        "invalid GitHub login {value:?}; use an individual username"
     );
     Ok(value.to_ascii_lowercase())
 }
 
-impl Contributors {
-    pub fn validate(&self) -> Result<()> {
-        for user in self.allow.iter().flatten().chain(&self.deny) {
-            login(user)?;
-        }
-        Ok(())
-    }
-
-    fn restricted(&self) -> bool {
-        self.allow.is_some() || !self.deny.is_empty()
-    }
-
-    fn check(&self, actor: &str) -> Result<()> {
-        self.validate()?;
-        let actor = login(actor)?;
+fn principal(value: &str) -> Result<String> {
+    let value = value.strip_prefix('@').unwrap_or(value);
+    if let Some((org, team)) = value.split_once('/') {
+        login(org)?;
         ensure!(
-            !self
-                .deny
-                .iter()
-                .any(|user| login(user).is_ok_and(|user| user == actor)),
-            "contributor @{actor} is blocked"
+            !org.ends_with("[bot]")
+                && !team.is_empty()
+                && team
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte)),
+            "invalid GitHub team {value:?}; use @org/team-slug"
         );
-        if let Some(allow) = &self.allow {
-            ensure!(
-                allow
-                    .iter()
-                    .any(|user| login(user).is_ok_and(|user| user == actor)),
-                "contributor @{actor} is not in the allowlist"
-            );
-        }
-        Ok(())
+        Ok(value.to_ascii_lowercase())
+    } else {
+        login(value)
     }
 }
 
-pub fn check(actor: &str, policies: &[Option<&Contributors>]) -> Result<()> {
-    login(actor)?;
-    for policy in policies.iter().flatten() {
-        policy.check(actor)?;
-    }
-    Ok(())
-}
-
-pub fn check_authenticated(policies: &[Option<&Contributors>]) -> Result<()> {
-    if !policies.iter().flatten().any(|policy| policy.restricted()) {
-        return Ok(());
-    }
+fn github(arguments: &[&str]) -> Result<String> {
     let output = Command::new("gh")
-        .args(["api", "--hostname", "github.com", "user", "--jq", ".login"])
+        .args(["api", "--hostname", "github.com"])
+        .args(arguments)
         .output()
         .context("contributor policy requires GitHub CLI; install gh and run gh auth login --hostname github.com")?;
     ensure!(
         output.status.success(),
-        "could not authenticate contributor; run gh auth login --hostname github.com"
+        "GitHub request failed for {}; check gh authentication and organization Members read permission for team checks",
+        arguments[0]
     );
-    let actor = std::str::from_utf8(&output.stdout)?.trim();
-    check(actor, policies)
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+fn team_member(org: &str, team: &str, actor: &str) -> Result<bool> {
+    // A successful complete listing distinguishes non-membership from an inaccessible team.
+    let members = github(&[
+        &format!("orgs/{org}/teams/{team}/members?per_page=100"),
+        "--paginate",
+        "--jq",
+        ".[].login",
+    ])
+    .with_context(|| format!("cannot verify membership of @{org}/{team}"))?;
+    for member in members.lines() {
+        if login(member)? == actor {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+impl Contributors {
+    pub fn validate(&self) -> Result<()> {
+        for entry in self.allow.iter().flatten().chain(&self.deny) {
+            principal(entry)?;
+        }
+        Ok(())
+    }
+
+    pub fn check(&self, actor: &str) -> Result<()> {
+        self.check_with(actor, team_member)
+    }
+
+    fn check_with(
+        &self,
+        actor: &str,
+        mut member: impl FnMut(&str, &str, &str) -> Result<bool>,
+    ) -> Result<()> {
+        self.validate()?;
+        let actor = login(actor)?;
+        let mut matches = |entry: &str| -> Result<bool> {
+            let entry = principal(entry)?;
+            match entry.split_once('/') {
+                Some((org, team)) => member(org, team, &actor),
+                None => Ok(entry == actor),
+            }
+        };
+        for entry in &self.deny {
+            ensure!(
+                !matches(entry)?,
+                "contributor @{actor} is blocked by {entry}"
+            );
+        }
+        if let Some(allow) = &self.allow {
+            for entry in allow {
+                if matches(entry)? {
+                    return Ok(());
+                }
+            }
+            anyhow::bail!("contributor @{actor} is not in the allowlist");
+        }
+        Ok(())
+    }
+}
+
+pub fn check_authenticated(policy: Option<&Contributors>) -> Result<()> {
+    let Some(policy) = policy else {
+        return Ok(());
+    };
+    if policy.allow.is_none() && policy.deny.is_empty() {
+        return Ok(());
+    }
+    let actor = github(&["user", "--jq", ".login"])?;
+    policy.check(actor.trim())
 }
 
 #[cfg(test)]
@@ -97,33 +143,68 @@ mod tests {
 
     #[test]
     fn defaults_empty_allow_and_deny_precedence() {
-        assert!(check("alice", &[Some(&policy(""))]).is_ok());
-        assert!(check("alice", &[Some(&policy("allow = []"))]).is_err());
+        assert!(policy("").check("alice").is_ok());
+        assert!(policy("allow = []").check("alice").is_err());
         let rules = policy("allow = ['@Alice']\ndeny = ['alice']");
         assert!(
-            check("ALICE", &[Some(&rules)])
+            rules
+                .check("ALICE")
                 .unwrap_err()
                 .to_string()
                 .contains("blocked")
         );
-        assert!(check("alice", &[Some(&policy("allow = ['@ALICE']"))]).is_ok());
+        assert!(policy("allow = ['@ALICE']").check("alice").is_ok());
     }
 
     #[test]
-    fn package_rules_cannot_relax_catalog_rules() {
-        let catalog = policy("allow = ['alice']");
-        let package = policy("allow = ['bob']");
-        assert!(check("bob", &[Some(&catalog), Some(&package)]).is_err());
-        assert!(check("alice", &[Some(&catalog), Some(&package)]).is_err());
-        assert!(check("alice", &[Some(&catalog), None]).is_ok());
+    fn team_rules_match_members_and_deny_overrides_user_allow() {
+        let rules = policy("allow = ['@ORG/Engineering']");
+        assert!(
+            rules
+                .check_with("@Alice", |org, team, actor| {
+                    assert_eq!((org, team, actor), ("org", "engineering", "alice"));
+                    Ok(true)
+                })
+                .is_ok()
+        );
+        assert!(rules.check_with("bob", |_, _, _| Ok(false)).is_err());
+        let rules = policy("allow = ['alice']\ndeny = ['@org/blocked']");
+        assert!(
+            rules
+                .check_with("alice", |_, _, _| Ok(true))
+                .unwrap_err()
+                .to_string()
+                .contains("blocked")
+        );
+        assert!(rules.check_with("alice", |_, _, _| Ok(false)).is_ok());
+    }
+
+    #[test]
+    fn unreadable_teams_cannot_bypass_a_deny() {
+        let rules = policy("allow = ['alice']\ndeny = ['@org/private']");
+        assert!(
+            rules
+                .check_with("alice", |_, _, _| anyhow::bail!("not visible"))
+                .is_err()
+        );
     }
 
     #[test]
     fn identity_syntax_is_explicit() {
-        for user in ["", "@", "org/team", "alice@example.com", "*"] {
-            assert!(login(user).is_err());
+        for entry in [
+            "",
+            "@",
+            "org/",
+            "/team",
+            "org/team/extra",
+            "alice@example.com",
+            "*",
+            "org/team?x=1",
+        ] {
+            assert!(principal(entry).is_err());
         }
         assert_eq!(login("@dependabot[bot]").unwrap(), "dependabot[bot]");
-        assert!(policy("allow = ['org/team']").validate().is_err());
+        assert!(policy("allow = ['@org/data-team']").validate().is_ok());
+        assert!(login("org/team").is_err());
     }
 }

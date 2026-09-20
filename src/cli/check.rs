@@ -7,7 +7,7 @@ use crate::workspace::Workspace;
 #[command(
     long_about = "Without options, validate local OKF and package structure.
 
-With --contributor, --base, and --head, check changed catalog paths against contributor rules from the trusted base commit. This CI mode does not validate document structure or execute files from either revision. The caller must supply the authenticated PR author and trusted base/head revisions; Git author names are not authentication."
+With --contributor, --base, and --head, check changed package paths against contributor rules from the trusted base commit. This CI mode does not validate document structure or execute files from either revision. The caller must supply the authenticated PR author and trusted base/head revisions; Git author names are not authentication."
 )]
 pub(super) struct Args {
     /// GitHub login from a trusted CI event (not a Git commit author).

@@ -16,19 +16,20 @@ basic structure; it does not enforce custom schemas or establish factual accurac
 
 ## Contributor rules
 
-Read `[contributors]` in the catalog's `gnosis.toml` and target `package.toml`.
-Both must permit the contributor: missing `allow` is unrestricted, an empty
-`allow` permits nobody, and `deny` overrides `allow`. Match individual GitHub.com
-logins case-insensitively, ignoring an optional `@`. Ownership is not an exemption.
+Read `[contributors]` in the target `package.toml`. Missing `allow` is unrestricted,
+an empty `allow` permits nobody, and `deny` overrides `allow`. Entries are GitHub.com
+usernames or `@org/team-slug` groups, matched case-insensitively with optional `@`.
+Teams include nested members and synced identity-provider groups. Owner status
+is not an exemption; there is no catalog-wide contributor policy.
 
-When restrictions apply, establish identity with `gh api --hostname github.com
-user --jq .login`; do not infer it from Git names, emails, or package ownership.
-If identity cannot be verified or policy denies access, report that result before
-editing. Do not relax rules to make an edit pass. Imported policy copies can be
-stale; `propose` checks the latest source catalog and package policy. Direct local
-contributions use source-repository CI with the protected base policy. The
-`check --contributor --base --head` mode is for trusted CI event data, not a way
-to claim another identity locally.
+For restricted edits, establish identity with `gh api --hostname github.com user
+--jq .login`. Verify team entries through GitHub's paginated team-members API with
+organization read access. An unreadable team is an error, not an empty group.
+If identity or membership cannot be verified, or rules deny access, report that
+before editing. Do not change policy to make the edit pass. `propose` checks the
+latest source package policy; direct contributions use required source CI against
+base-branch policy. `check --contributor --base --head` accepts trusted CI data,
+not proof of a locally claimed identity.
 
 ## Author and organize
 

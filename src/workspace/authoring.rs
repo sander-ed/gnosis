@@ -77,7 +77,6 @@ impl Workspace {
         );
         let original = self.knowledge()?;
         let mut tree = original.clone();
-        contributors::check_authenticated(&[manifest.contributors.as_ref()])?;
         let package = Package {
             contributors: None,
             name: name.into(),
@@ -147,10 +146,7 @@ impl Workspace {
         let original = self.knowledge()?;
         let mut content = tree::subtree(&original, name);
         let package = metadata::package(&content, name)?;
-        contributors::check_authenticated(&[
-            manifest.contributors.as_ref(),
-            package.contributors.as_ref(),
-        ])?;
+        contributors::check_authenticated(package.contributors.as_ref())?;
         let destination = self.root.join("gnosis").join(name).join(&relative);
         ensure!(
             !destination.try_exists()?,

@@ -17,8 +17,6 @@ pub struct Source {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub contributors: Option<Contributors>,
     pub format: u32,
     #[serde(default)]
     pub packages: BTreeSet<String>,
@@ -112,9 +110,6 @@ pub fn validate_source(source: &Source) -> Result<()> {
 }
 
 pub fn validate_manifest(manifest: &Manifest) -> Result<()> {
-    if let Some(policy) = &manifest.contributors {
-        policy.validate()?;
-    }
     ensure!(
         manifest.format == 1,
         "unsupported manifest format {}",

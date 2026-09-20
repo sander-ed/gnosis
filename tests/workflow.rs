@@ -1241,7 +1241,21 @@ fn cli_as(root: &Path, actor: &str, args: &[&str]) -> Output {
     use std::os::unix::fs::PermissionsExt;
     let tools = tempfile::tempdir().unwrap();
     let gh = tools.path().join("gh");
-    fs::write(&gh, format!("#!/bin/sh\nprintf '%s\\n' '{actor}'\n")).unwrap();
+    fs::write(
+        &gh,
+        r#"#!/bin/sh
+case "$4" in
+  user) printf '%s\n' "$GNOSIS_TEST_ACTOR" ;;
+  "orgs/org/teams/editors/members?per_page=100")
+    test "$5" = "--paginate" || exit 1
+    printf 'bob\nAlice\n' ;;
+  "orgs/org/teams/blocked/members?per_page=100") printf 'bob\n' ;;
+  "orgs/org/teams/unreadable/members?per_page=100") printf 'alice\n'; exit 1 ;;
+  *) exit 1 ;;
+esac
+"#,
+    )
+    .unwrap();
     fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
     let path = std::env::join_paths(
         std::iter::once(tools.path().to_owned())
@@ -1253,28 +1267,21 @@ fn cli_as(root: &Path, actor: &str, args: &[&str]) -> Output {
             .arg("-C")
             .arg(root)
             .args(args)
-            .env("PATH", path),
+            .env("PATH", path)
+            .env("GNOSIS_TEST_ACTOR", actor),
     )
 }
 
 #[cfg(unix)]
 #[test]
-fn authoring_enforces_catalog_and_package_contributors() {
+fn authoring_enforces_package_contributors() {
     let fixture = Fixture::new();
     let root = &fixture.source;
     write(
         root,
-        "gnosis.toml",
-        format!(
-            "{}\n[contributors]\nallow = ['alice', 'bob']\n",
-            read(root, "gnosis.toml")
-        ),
-    );
-    write(
-        root,
         "gnosis/core/package.toml",
         format!(
-            "{}\n[contributors]\ndeny = ['bob']\n",
+            "{}\n[contributors]\nallow = ['alice', 'bob']\ndeny = ['bob']\n",
             read(root, "gnosis/core/package.toml")
         ),
     );
@@ -1283,11 +1290,7 @@ fn authoring_enforces_catalog_and_package_contributors() {
     assert!(!denied.status.success());
     assert!(String::from_utf8_lossy(&denied.stderr).contains("blocked"));
     assert_eq!(snapshot(root), before);
-    let denied = cli_as(
-        root,
-        "charlie",
-        &["package", "denied", "--owner", "charlie"],
-    );
+    let denied = cli_as(root, "charlie", &["new", "core", "denied"]);
     assert!(!denied.status.success());
     assert_eq!(snapshot(root), before);
     let unauthenticated = cli_as(root, "", &["new", "core", "denied"]);
@@ -1319,17 +1322,9 @@ fn proposals_use_current_source_policy_not_the_editable_copy() {
     );
     write(
         &fixture.source,
-        "gnosis.toml",
-        format!(
-            "{}\n[contributors]\nallow = ['alice', 'bob']\n",
-            read(&fixture.source, "gnosis.toml")
-        ),
-    );
-    write(
-        &fixture.source,
         "gnosis/platform/package.toml",
         format!(
-            "{}\n[contributors]\ndeny = ['bob']\n",
+            "{}\n[contributors]\nallow = ['alice', 'bob']\ndeny = ['bob']\n",
             read(&fixture.source, "gnosis/platform/package.toml")
         ),
     );
@@ -1363,12 +1358,6 @@ fn proposals_use_current_source_policy_not_the_editable_copy() {
 fn ci_checks_old_policies_even_when_a_proposal_removes_them() {
     let fixture = Fixture::new();
     let root = &fixture.source;
-    let manifest = read(root, "gnosis.toml");
-    write(
-        root,
-        "gnosis.toml",
-        format!("{manifest}\n[contributors]\nallow = ['alice', 'bob']\n"),
-    );
     let package = read(root, "gnosis/platform/package.toml");
     write(
         root,
@@ -1376,7 +1365,6 @@ fn ci_checks_old_policies_even_when_a_proposal_removes_them() {
         format!("{package}\n[contributors]\nallow = ['alice']\n"),
     );
     let base = commit(root);
-    write(root, "gnosis.toml", &manifest);
     fs::remove_dir_all(root.join("gnosis/platform")).unwrap();
     let head = commit(root);
     let base = base.trim();
@@ -1406,7 +1394,7 @@ fn ci_checks_old_policies_even_when_a_proposal_removes_them() {
             "--head",
             head,
         ],
-        "catalog contributor policy",
+        "package platform contributor policy",
     );
     cli(
         root,
@@ -1424,17 +1412,9 @@ fn ci_checks_old_policies_even_when_a_proposal_removes_them() {
 }
 
 #[test]
-fn ci_checks_new_packages_against_catalog_policy_and_requires_all_arguments() {
+fn ci_new_packages_have_no_base_policy_and_require_complete_arguments() {
     let fixture = Fixture::new();
     let root = &fixture.source;
-    write(
-        root,
-        "gnosis.toml",
-        format!(
-            "{}\n[contributors]\nallow = ['alice']\n",
-            read(root, "gnosis.toml")
-        ),
-    );
     let base = commit(root);
     write(
         root,
@@ -1442,19 +1422,6 @@ fn ci_checks_new_packages_against_catalog_policy_and_requires_all_arguments() {
         "name = 'new-package'\nowner = 'bob'\n",
     );
     let head = commit(root);
-    fails(
-        root,
-        &[
-            "check",
-            "--contributor",
-            "bob",
-            "--base",
-            base.trim(),
-            "--head",
-            head.trim(),
-        ],
-        "catalog contributor policy",
-    );
     cli(
         root,
         &[
@@ -1546,4 +1513,75 @@ fn ci_uses_latest_base_rules_but_only_the_proposed_branch_changes() {
         ],
         "package core contributor policy",
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn team_contributors_are_checked_during_authoring_and_ci() {
+    let fixture = Fixture::new();
+    let root = &fixture.source;
+    let path = "gnosis/core/package.toml";
+    let package = read(root, path);
+    write(
+        root,
+        path,
+        format!("{package}\n[contributors]\nallow = ['@org/editors']\ndeny = ['@org/blocked']\n"),
+    );
+    let base = commit(root);
+    let before = snapshot(root);
+    let denied = cli_as(root, "bob", &["new", "core", "denied"]);
+    assert!(!denied.status.success());
+    assert!(String::from_utf8_lossy(&denied.stderr).contains("blocked"));
+    assert_eq!(snapshot(root), before);
+    success(cli_as(root, "alice", &["new", "core", "allowed"]));
+    let head = commit(root);
+    let args = [
+        "check",
+        "--contributor",
+        "alice",
+        "--base",
+        base.trim(),
+        "--head",
+        head.trim(),
+    ];
+    success(cli_as(root, "ci-bot", &args));
+    let denied = cli_as(
+        root,
+        "ci-bot",
+        &[
+            "check",
+            "--contributor",
+            "charlie",
+            "--base",
+            base.trim(),
+            "--head",
+            head.trim(),
+        ],
+    );
+    assert!(!denied.status.success());
+    write(
+        root,
+        path,
+        format!("{package}\n[contributors]\nallow = ['alice']\ndeny = ['@org/unreadable']\n"),
+    );
+    let before = snapshot(root);
+    let unknown = cli_as(root, "alice", &["new", "core", "unverified"]);
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("cannot verify membership"));
+    assert_eq!(snapshot(root), before);
+}
+
+#[test]
+fn contributor_policy_is_only_accepted_in_package_metadata() {
+    let fixture = Fixture::new();
+    let root = &fixture.source;
+    write(
+        root,
+        "gnosis.toml",
+        format!(
+            "{}\n[contributors]\nallow = ['alice']\n",
+            read(root, "gnosis.toml")
+        ),
+    );
+    fails(root, &["check"], "unknown field `contributors`");
 }

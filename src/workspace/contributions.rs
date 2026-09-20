@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use anyhow::{Context, Result};
 
 use super::Workspace;
-use crate::metadata::{Manifest, Package};
-use crate::{contributors, git, metadata};
+use crate::metadata::Package;
+use crate::{git, metadata};
 
 impl Workspace {
     pub fn check_contribution(&self, actor: &str, base: &str, head: &str) -> Result<()> {
@@ -23,11 +23,6 @@ impl Workspace {
         };
         let base = commit(base)?;
         let head = commit(head)?;
-        let manifest: Manifest = metadata::decode(
-            &git::file_at(&self.root, &base, "gnosis.toml")?
-                .context("trusted base is missing gnosis.toml; establish catalog policy on the base branch first")?,
-        )?;
-        metadata::validate_manifest(&manifest)?;
         let paths = git::run(
             &self.root,
             &[
@@ -37,7 +32,6 @@ impl Workspace {
                 "-z",
                 &format!("{base}...{head}"),
                 "--",
-                "gnosis.toml",
                 "gnosis/",
             ],
             true,
@@ -46,8 +40,6 @@ impl Workspace {
             println!("No catalog changes to authorize");
             return Ok(());
         }
-        contributors::check(actor, &[manifest.contributors.as_ref()])
-            .context("catalog contributor policy")?;
         let mut packages = BTreeSet::new();
         for path in paths
             .split(|byte| *byte == 0)
@@ -67,8 +59,11 @@ impl Workspace {
                 git::file_at(&self.root, &base, &format!("gnosis/{name}/package.toml"))?
             {
                 let package: Package = metadata::decode(&bytes)?;
-                contributors::check(actor, &[package.contributors.as_ref()])
-                    .with_context(|| format!("package {name} contributor policy"))?;
+                if let Some(policy) = &package.contributors {
+                    policy
+                        .check(actor)
+                        .with_context(|| format!("package {name} contributor policy"))?;
+                }
             }
         }
         println!(

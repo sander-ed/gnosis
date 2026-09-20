@@ -58,10 +58,7 @@ impl Workspace {
             "source no longer publishes {name}"
         );
         let package = metadata::package(&upstream, name)?;
-        contributors::check_authenticated(&[
-            published.contributors.as_ref(),
-            package.contributors.as_ref(),
-        ])?;
+        contributors::check_authenticated(package.contributors.as_ref())?;
         let mut merged = git::merge(
             &base,
             &local,

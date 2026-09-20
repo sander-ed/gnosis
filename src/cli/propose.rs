@@ -11,7 +11,7 @@ use crate::workspace::Workspace;
 
 Run from the consuming workspace after editing files under gnosis/NAME. The source is read from gnosis.lock. Gnosis fetches the current source ref, merges your edits against it, and stages only this package on branch gnosis/NAME. Your workspace and lock remain unchanged.
 
-This prepares a proposal; it does not commit, push, or open a pull request. Contributor rules are checked against the current source policy using your authenticated GitHub CLI account. Locally authored packages use ordinary Git branches and pull requests in their own repository.",
+This prepares a proposal; it does not commit, push, or open a pull request. Contributor rules are checked against the current source package policy using your authenticated GitHub CLI account. Locally authored packages use ordinary Git branches and pull requests in their own repository.",
     after_help = "Example:
   gnosis propose ed-sql-prinsipper --output ../sql-proposal
   git -C ../sql-proposal diff --cached

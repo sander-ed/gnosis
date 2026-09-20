@@ -173,14 +173,31 @@ in the publishing repository, use an ordinary Git branch and PR there instead.
 
 ## Contributor rules
 
-Catalogs and packages can declare `[contributors]` with `allow` and `deny` lists
-alongside ownership metadata. Local authoring and proposal preparation check
-restricted operations against an authenticated GitHub account. Source-repository
-CI enforces contributions against the protected base policy, including changes
-made directly with an editor and Git.
+Set rules in each package's `gnosis/NAME/package.toml`:
 
-See [contributor policy](docs/contributors.md) for configuration, rule precedence,
-and the required CI setup. Rules do not grant or replace GitHub permissions.
+```toml
+[contributors]
+allow = ["@sander-ed", "@my-org/data-team"]
+deny = ["@blocked-user", "@my-org/restricted-team"]
+```
+
+Entries are GitHub.com usernames or `@org/team-slug` groups, including nested
+teams and identity-provider groups synced to GitHub teams. Matching ignores case
+and an optional `@`. Deny wins; omitting `allow` permits anyone not denied, while
+`allow = []` permits nobody. Ownership does not bypass these rules.
+
+`new` checks the local package policy; `propose` checks the latest source package
+policy. Restricted operations use your authenticated `gh` account. Team checks
+require `read:org` or organization **Members: read** access and stop if membership
+cannot be verified. See [GitHub's team API](https://docs.github.com/en/rest/teams/members#list-team-members).
+
+For local and imported contributions, required CI can run
+`gnosis check --contributor "$PR_AUTHOR" --base "$BASE_SHA" --head "$HEAD_SHA"`
+using trusted event values and a trusted Gnosis binary. It checks changed packages
+against base-branch policy, so proposed edits cannot remove their own restrictions.
+CI team checks need a token with the same organization access. Protect that check
+and require owner review for policy changes and new packages, which have no base
+policy yet. Local checks do not prevent direct edits or replace GitHub permissions.
 
 ## Commands
 
