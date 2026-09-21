@@ -68,4 +68,4 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 Always interact with the `gnosis` knowledge catalog when extracting or inserting new knowledge about the core business logic of the application.
 
-If something new is discovered from the user that is relevant to keep in memory, refer to the `gnosis`-skills.
+Use `gnosis-navigate` for catalog lookup, `gnosis-author` for new or unstructured knowledge worth retaining, `gnosis-update` for precise already-decided content changes, `gnosis-publish` for explicitly requested upstream refresh or contribution, and `gnosis-cli` for command questions. The canonical skills and installation instructions are in `skills/`.

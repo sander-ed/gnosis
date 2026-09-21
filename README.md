@@ -270,12 +270,18 @@ cargo fmt --check
 
 Integration tests use temporary local Git repositories.
 
-Two optional agent skills separate reading from editing:
+Five optional agent skills separate lookup, authoring, and upstream workflows:
 
 - [gnosis-navigate](skills/gnosis-navigate/SKILL.md): find and read knowledge,
   assess provenance, and answer with citations.
-- [gnosis-update](skills/gnosis-update/SKILL.md): edit packages, validate changes,
-  and prepare upstream contributions.
+- [gnosis-cli](skills/gnosis-cli/SKILL.md): command syntax, effects, and limitations.
+- [gnosis-update](skills/gnosis-update/SKILL.md): apply specified content changes
+  and validate the local result.
+- [gnosis-author](skills/gnosis-author/SKILL.md): shape new knowledge, extract
+  bounded evidence, and obtain approval before handing off to the writer.
+- [gnosis-publish](skills/gnosis-publish/SKILL.md): explicitly refresh imports or
+  prepare upstream contributions without authoring content.
 
-Copy either skill folder into your agent's skill directory. If you previously
+Install all five using the checked local links in the [skills guide](skills/README.md).
+`skills/` is canonical; `.agents/skills/` is ignored local wiring. If you previously
 installed the combined `gnosis` skill, replace it with these folders.
