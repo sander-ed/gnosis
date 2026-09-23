@@ -1,18 +1,30 @@
 # Gnosis
 
-A Git-backed package manager for [OKF 0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
-knowledge. Install editable packages, pin upstream commits, and contribute local
-changes back to their source repositories.
+**Package and share team knowledge through Git.**
+
+Gnosis is a command-line tool for keeping reusable knowledge alongside your
+code. Package your team's engineering standards, playbooks, or reference
+material in one Git repository, then install them into the projects that need
+them as editable Markdown files.
+
+- **Reuse knowledge across projects.** Install a package and its dependencies
+  from a Git repository.
+- **Keep versions predictable.** A lock file records the exact upstream commits
+  your project uses.
+- **Make local changes.** Edit installed knowledge in your project, then merge
+  upstream updates when you choose.
+- **Contribute improvements back.** Prepare changes for review in the source
+  repository using your normal Git and pull request workflow.
+
+Gnosis uses [Open Knowledge Format (OKF) 0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+for structured Markdown knowledge. Your files stay in Git; Gnosis does not
+require a separate knowledge server.
 
 ## Install
 
-Supported platforms are Linux and macOS. Source access uses your existing Git
-authentication.
+### Homebrew
 
-### Homebrew (private tap)
-
-Your GitHub account needs read access to both `sander-ed/gnosis` and
-`sander-ed/homebrew-tap`, with a working GitHub SSH key.
+Install on macOS or Linux with [Homebrew](https://brew.sh):
 
 ```sh
 brew tap sander-ed/tap ssh://git@github.com/sander-ed/homebrew-tap.git
@@ -20,54 +32,26 @@ brew install sander-ed/tap/gnosis
 gnosis --help
 ```
 
-The formula builds a pinned release from source. Homebrew installs Rust as a
-build dependency and Git as a runtime dependency. No GitHub token is embedded
-in the formula.
+The first installation builds Gnosis from source. Homebrew handles the Rust
+build toolchain and Git dependency for you.
 
-To update to a newer published version:
+> **Current access requirement:** the tap and source repository are private.
+> You need read access to both `sander-ed/homebrew-tap` and `sander-ed/gnosis`,
+> plus a working GitHub SSH key. Making only the source repository public does
+> not make the tap public. The current formula downloads source over SSH.
+
+To upgrade:
 
 ```sh
 brew update
 brew upgrade sander-ed/tap/gnosis
 ```
 
-#### Publishing a Homebrew release
+Prefer to build it yourself? See [Build from source](#build-from-source).
 
-Bump `[package].version` in `Cargo.toml`, refresh `Cargo.lock` with Cargo, and
-push the changes to `main`. The **Update Homebrew tap** GitHub Actions workflow
-checks each push and skips versions already packaged by the tap. For a new
-version, it tests and builds the release commit, creates an immutable `vVERSION`
-tag, and updates the tap's formula with that tag and exact commit.
+## Quick start
 
-The workflow can also be run manually to retry a failed publication. If the
-release tag was already created, retries reuse and test that tagged commit;
-they never move the tag. Queued runs use the latest `main` to avoid publishing
-stale versions.
-
-The source repository's `HOMEBREW_TAP_DEPLOY_KEY` Actions secret holds a dedicated
-SSH deploy key with write access only to `sander-ed/homebrew-tap`. Source tags
-use the workflow's `GITHUB_TOKEN`. If the deploy key is rotated, update both the
-tap's deploy key and the source repository's secret.
-
-### From source
-
-Requires a recent stable Rust toolchain and Git 2.38 or later. From a checkout of
-this repository:
-
-```sh
-cargo install --path . --locked
-gnosis --help
-```
-
-To build without installing, run `cargo build --locked` and use
-`target/debug/gnosis`.
-
-Commands operate in the current directory. Use `gnosis -C /path/to/project COMMAND`
-to select another workspace; parent directories are not searched.
-
-## Create a package
-
-In a Git repository without an existing Gnosis workspace:
+Create your first knowledge package inside an existing Git repository:
 
 ```sh
 gnosis init
@@ -75,7 +59,8 @@ gnosis package platform --owner @my-org/platform --description "Platform knowled
 gnosis new platform ownership --title "Service ownership"
 ```
 
-Edit `gnosis/platform/ownership.md`, then run:
+Open `gnosis/platform/ownership.md` and write your first piece of knowledge.
+Then refresh navigation, check the package, and commit it:
 
 ```sh
 gnosis index
@@ -84,12 +69,30 @@ git add gnosis.toml gnosis.lock gnosis
 git commit -m "Add platform knowledge"
 ```
 
-Publish through the repository's normal Git workflow. Only packages listed in
-`gnosis.toml` are discoverable; imported dependencies are not republished.
-The `owner` field identifies the responsible person or team. Enforce reviews
-through your repository's access controls and branch protection.
+Push the repository to share the package. Other projects can then install it
+using the steps below.
 
-## Install packages
+## How it works
+
+A **workspace** is a project directory with a `gnosis.toml` manifest. A
+**package** is a named collection of knowledge under `gnosis/`. A **source** is
+a Git repository that publishes packages for other projects to install.
+
+Gnosis tracks installed packages in `gnosis.lock`, including their exact
+upstream commits. Installed files are part of your project: you can read, edit,
+and commit them like any other Markdown. Updating from upstream is explicit,
+and Gnosis merges those updates with your local edits.
+
+Commands operate in the current directory. Use `gnosis -C /path/to/project COMMAND`
+to select another workspace; parent directories are not searched.
+
+Only packages listed in a source's `gnosis.toml` are discoverable; imported
+dependencies are not republished. Replace `@my-org/platform` in the example with
+the person or team responsible for your package. The required `--owner` identifies
+that owner; enforce reviews through your repository's access controls and branch
+protection.
+
+## Install shared knowledge
 
 Run these commands in the project that will consume the knowledge. A source is
 a Git repository that publishes packages; `team` is its local alias, used to
@@ -193,21 +196,21 @@ To contribute changes, edit the installed package in your consuming workspace,
 then prepare a separate source checkout:
 
 ```sh
-gnosis propose core/ed-sql-prinsipper --output ../sql-proposal
-git -C ../sql-proposal diff --cached
+gnosis propose team/platform --output ../platform-proposal
+git -C ../platform-proposal diff --cached
 ```
 
 `propose` gets the repository and ref from the installed package's lock entry.
 It merges your changes onto the current source ref and stages only that package
-on `gnosis/ed-sql-prinsipper`. The output directory must be new and outside
+on `gnosis/platform`. The output directory must be new and outside
 `gnosis/`; relative paths are resolved from the selected workspace. Your consuming
 workspace and lock remain unchanged. Conflicts stop preparation.
 
 After reviewing the staged diff, complete the contribution with Git:
 
 ```sh
-git -C ../sql-proposal commit -m "Clarify SQL principles"
-git -C ../sql-proposal push -u origin gnosis/ed-sql-prinsipper
+git -C ../platform-proposal commit -m "Clarify service ownership"
+git -C ../platform-proposal push -u origin gnosis/platform
 ```
 
 Open a pull request in the source repository. If that branch already exists
@@ -222,7 +225,7 @@ Set rules in each package's `gnosis/NAME/package.toml`:
 
 ```toml
 [contributors]
-allow = ["@sander-ed", "@my-org/data-team"]
+allow = ["@alice", "@my-org/platform"]
 deny = ["@blocked-user", "@my-org/restricted-team"]
 ```
 
@@ -291,6 +294,21 @@ workspace is restored.
 
 ## Development
 
+### Build from source
+
+Requires a recent stable Rust toolchain and Git 2.38 or later. From a checkout of
+this repository:
+
+```sh
+cargo install --path . --locked
+gnosis --help
+```
+
+To build without installing, run `cargo build --locked` and use
+`target/debug/gnosis`.
+
+### Project structure
+
 | Module | Responsibility |
 | --- | --- |
 | `src/main.rs` | Startup and error reporting |
@@ -307,6 +325,8 @@ Each subcommand owns its arguments and `run` method in `src/cli/`. Register new
 commands in `src/cli/mod.rs` and put their business logic in the appropriate
 workspace module. Shared domain code should not depend on Clap types.
 
+### Checks
+
 ```sh
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
@@ -314,6 +334,8 @@ cargo fmt --check
 ```
 
 Integration tests use temporary local Git repositories.
+
+## Agent skills
 
 Five optional agent skills separate lookup, authoring, and upstream workflows:
 
@@ -328,5 +350,23 @@ Five optional agent skills separate lookup, authoring, and upstream workflows:
   prepare upstream contributions without authoring content.
 
 Install all five using the checked local links in the [skills guide](skills/README.md).
+
+## Releasing
+
+Bump `[package].version` in `Cargo.toml`, refresh `Cargo.lock` with Cargo, and
+push the changes to `main`. The **Update Homebrew tap** GitHub Actions workflow
+checks each push and skips versions already packaged by the tap. For a new
+version, it tests and builds the release commit, creates an immutable `vVERSION`
+tag, and updates the tap's formula with that tag and exact commit.
+
+The workflow can also be run manually to retry a failed publication. If the
+release tag was already created, retries reuse and test that tagged commit;
+they never move the tag. Queued runs use the latest `main` to avoid publishing
+stale versions.
+
+The source repository's `HOMEBREW_TAP_DEPLOY_KEY` Actions secret holds a dedicated
+SSH deploy key with write access only to `sander-ed/homebrew-tap`. Source tags
+use the workflow's `GITHUB_TOKEN`. If the deploy key is rotated, update both the
+tap's deploy key and the source repository's secret.
 `skills/` is canonical; `.agents/skills/` is ignored local wiring. If you previously
 installed the combined `gnosis` skill, replace it with these folders.

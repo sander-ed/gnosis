@@ -2,6 +2,7 @@
 /target/
 /.gnosis/
 /.agents/
-/.github/
+/.github/*
+!/.github/workflows/
 gnosis.lock
 Cargo.lock

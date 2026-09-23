@@ -1,0 +1,118 @@
+name: Update Homebrew tap
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: homebrew-release
+  cancel-in-progress: false
+
+jobs:
+  update-tap:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the latest main branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # Queued runs must not publish an older version after a newer one.
+          ref: main
+          fetch-depth: 0
+
+      - name: Check out the private tap
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: sander-ed/homebrew-tap
+          ref: main
+          path: homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+
+      - name: Prepare the formula when the Cargo version changes
+        id: release
+        shell: python
+        run: |
+          import os
+          import re
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          def git(*args):
+              return subprocess.check_output(["git", *args], text=True).strip()
+
+          version = tomllib.loads(Path("Cargo.toml").read_text())["package"]["version"]
+          if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", version):
+              raise ValueError(f"Invalid release version: {version!r}")
+          tag = f"v{version}"
+          formula = Path("homebrew-tap/Formula/gnosis.rb")
+          text = formula.read_text()
+          tag_pattern = r'(?m)^(\s*tag:\s+)"([^"]+)"'
+          revision_pattern = r'(?m)^(\s*revision:\s+)"([0-9a-f]{40})"'
+          tags = re.findall(tag_pattern, text)
+          revisions = re.findall(revision_pattern, text)
+          if len(tags) != 1 or len(revisions) != 1:
+              raise ValueError("Expected exactly one tag and revision in Formula/gnosis.rb")
+
+          if tags[0][1] == tag:
+              print(f"The tap already packages {tag}; nothing to publish.")
+              outputs = {"changed": "false"}
+          else:
+              existing_tag = bool(git("tag", "--list", tag))
+              revision = git("rev-parse", f"refs/tags/{tag}^{{commit}}" if existing_tag else "HEAD")
+              subprocess.run(["git", "merge-base", "--is-ancestor", revision, "HEAD"], check=True)
+              tagged_version = tomllib.loads(git("show", f"{revision}:Cargo.toml"))["package"]["version"]
+              if tagged_version != version:
+                  raise ValueError(f"{tag} contains Cargo version {tagged_version}, not {version}")
+              text = re.sub(tag_pattern, lambda m: f'{m[1]}"{tag}"', text)
+              text = re.sub(revision_pattern, lambda m: f'{m[1]}"{revision}"', text)
+              formula.write_text(text)
+              outputs = {
+                  "changed": "true",
+                  "tag": tag,
+                  "revision": revision,
+                  "create_tag": str(not existing_tag).lower(),
+              }
+              print(f"Preparing {tag} at {revision}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              for key, value in outputs.items():
+                  print(f"{key}={value}", file=output)
+
+      - name: Test the exact release commit
+        if: steps.release.outputs.changed == 'true'
+        env:
+          RELEASE_REVISION: ${{ steps.release.outputs.revision }}
+        run: |
+          git checkout --detach "$RELEASE_REVISION"
+          rustup update stable --no-self-update
+          cargo +stable test --locked
+          cargo +stable build --release --locked
+
+      - name: Publish the immutable release tag
+        if: steps.release.outputs.create_tag == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_REVISION: ${{ steps.release.outputs.revision }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" "$RELEASE_REVISION" -m "Gnosis $RELEASE_TAG"
+          git push origin "refs/tags/$RELEASE_TAG"
+
+      - name: Publish the formula
+        if: steps.release.outputs.changed == 'true'
+        working-directory: homebrew-tap
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/gnosis.rb
+          git commit -m "Update gnosis to $RELEASE_TAG"
+          git push origin HEAD:main
