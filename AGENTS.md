@@ -60,6 +60,12 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
----
+-- [AGENTS.md source](https://github.com/multica-ai/andrej-karpathy-skills)
 
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+# Project Specific Instructions
+
+## Retaining knowledge
+
+Always interact with the `gnosis` knowledge catalog when extracting or inserting new knowledge about the core business logic of the application.
+
+Use `gnosis-navigate` for catalog lookup, `gnosis-author` for new or unstructured knowledge worth retaining, `gnosis-update` for precise already-decided content changes, `gnosis-publish` for explicitly requested upstream refresh or contribution, and `gnosis-cli` for command questions. The canonical skills and installation instructions are in `skills/`.

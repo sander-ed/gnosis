@@ -1,0 +1,7 @@
+/bin/
+/target/
+/.gnosis/
+/.agents/
+/.github/
+gnosis.lock
+Cargo.lock
