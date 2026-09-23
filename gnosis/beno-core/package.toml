@@ -1,4 +1,0 @@
-name = "beno-core"
-owner = "@sander-ed"
-description = "Kjernefunksjonalitet for BearingPoint Norge sin gnosis pakke"
-dependencies = []

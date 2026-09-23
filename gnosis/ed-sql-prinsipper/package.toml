@@ -1,4 +1,0 @@
-name = "ed-sql-prinsipper"
-owner = "@sander-ed"
-description = "Prinsipper som skal etterleves når SQL skal skrives i alle sammenhenger"
-dependencies = []
