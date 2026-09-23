@@ -25,10 +25,10 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Check out the private tap
+      - name: Check out the tap
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          repository: sander-ed/homebrew-tap
+          repository: sander-ed/sander-ed-tap
           ref: main
           path: homebrew-tap
           ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}

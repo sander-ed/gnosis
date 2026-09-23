@@ -27,16 +27,17 @@ require a separate knowledge server.
 Install on macOS or Linux with [Homebrew](https://brew.sh):
 
 ```sh
+brew tap sander-ed/tap https://github.com/sander-ed/sander-ed-tap.git
 brew install sander-ed/tap/gnosis
 gnosis --help
 ```
 
-Homebrew adds the public tap automatically and builds Gnosis from source,
-handling the Rust build toolchain and Git dependency for you. Installation
-uses HTTPS; no GitHub account, token, or SSH key is required.
+The first command adds the public tap; the second builds Gnosis from source.
+Homebrew handles the Rust build toolchain and Git dependency for you.
+Installation uses HTTPS; no GitHub account, token, or SSH key is required.
 
 For corporate certificate errors or an older Cargo installation taking
-precedence, see the [tap's troubleshooting guide](https://github.com/sander-ed/homebrew-tap#troubleshooting).
+precedence, see the [tap's troubleshooting guide](https://github.com/sander-ed/sander-ed-tap#troubleshooting).
 
 To upgrade:
 
@@ -363,7 +364,7 @@ they never move the tag. Queued runs use the latest `main` to avoid publishing
 stale versions.
 
 The source repository's `HOMEBREW_TAP_DEPLOY_KEY` Actions secret holds a dedicated
-SSH deploy key with write access only to `sander-ed/homebrew-tap`. Source tags
+SSH deploy key with write access only to `sander-ed/sander-ed-tap`. Source tags
 use the workflow's `GITHUB_TOKEN`. If the deploy key is rotated, update both the
 tap's deploy key and the source repository's secret.
 `skills/` is canonical; `.agents/skills/` is ignored local wiring. If you previously
