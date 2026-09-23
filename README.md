@@ -27,18 +27,16 @@ require a separate knowledge server.
 Install on macOS or Linux with [Homebrew](https://brew.sh):
 
 ```sh
-brew tap sander-ed/tap ssh://git@github.com/sander-ed/homebrew-tap.git
 brew install sander-ed/tap/gnosis
 gnosis --help
 ```
 
-The first installation builds Gnosis from source. Homebrew handles the Rust
-build toolchain and Git dependency for you.
+Homebrew adds the public tap automatically and builds Gnosis from source,
+handling the Rust build toolchain and Git dependency for you. Installation
+uses HTTPS; no GitHub account, token, or SSH key is required.
 
-> **Current access requirement:** the tap and source repository are private.
-> You need read access to both `sander-ed/homebrew-tap` and `sander-ed/gnosis`,
-> plus a working GitHub SSH key. Making only the source repository public does
-> not make the tap public. The current formula downloads source over SSH.
+For corporate certificate errors or an older Cargo installation taking
+precedence, see the [tap's troubleshooting guide](https://github.com/sander-ed/homebrew-tap#troubleshooting).
 
 To upgrade:
 
