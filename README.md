@@ -6,8 +6,35 @@ changes back to their source repositories.
 
 ## Install
 
-Requires a recent stable Rust toolchain and Git 2.38 or later. Supported platforms
-are Linux and macOS. Source access uses your existing Git authentication.
+Supported platforms are Linux and macOS. Source access uses your existing Git
+authentication.
+
+### Homebrew (private tap)
+
+Your GitHub account needs read access to both `sander-ed/gnosis` and
+`sander-ed/homebrew-tap`, with a working GitHub SSH key.
+
+```sh
+brew tap sander-ed/tap ssh://git@github.com/sander-ed/homebrew-tap.git
+brew install sander-ed/tap/gnosis
+gnosis --help
+```
+
+The formula builds a pinned release from source. Homebrew installs Rust as a
+build dependency and Git as a runtime dependency. No GitHub token is embedded
+in the formula.
+
+To update to a newer published version:
+
+```sh
+brew update
+brew upgrade sander-ed/tap/gnosis
+```
+
+### From source
+
+Requires a recent stable Rust toolchain and Git 2.38 or later. From a checkout of
+this repository:
 
 ```sh
 cargo install --path . --locked
