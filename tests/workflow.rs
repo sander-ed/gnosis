@@ -446,6 +446,290 @@ fn removing_a_dependency_never_discards_local_knowledge() {
 }
 
 #[test]
+fn removal_prunes_the_import_graph_without_changing_sources_or_git() {
+    let fixture = Fixture::new();
+    fixture.install();
+    let root = &fixture.consumer;
+    let head = commit(root);
+    let source_before = snapshot(&fixture.source);
+    write(root, "unrelated.txt", "Keep this.");
+    cli(root, &["remove", "team/platform"]);
+    let manifest: toml::Value = toml::from_str(&read(root, "gnosis.toml")).unwrap();
+    let lock: toml::Value = toml::from_str(&read(root, "gnosis.lock")).unwrap();
+    assert!(manifest["dependencies"].as_table().unwrap().is_empty());
+    assert!(lock["requirements"].as_table().unwrap().is_empty());
+    assert!(lock["packages"].as_table().unwrap().is_empty());
+    assert_eq!(manifest["sources"], lock["sources"]);
+    assert!(manifest["sources"]["team"].is_table());
+    assert!(!root.join("gnosis/platform").exists());
+    assert!(!root.join("gnosis/core").exists());
+    assert!(!read(root, "gnosis/index.md").contains("platform/index.md"));
+    assert_eq!(read(root, "unrelated.txt"), "Keep this.");
+    assert_eq!(snapshot(&fixture.source), source_before);
+    assert_eq!(git(root, &["rev-parse", "HEAD"]).trim(), head);
+    assert!(git(root, &["diff", "--cached", "--name-only"]).is_empty());
+    cli(root, &["check"]);
+    let before = snapshot(root);
+    cli(root, &["sync"]);
+    assert_eq!(before, snapshot(root));
+    fixture.install();
+    assert!(root.join("gnosis/platform/facts.md").exists());
+    assert!(root.join("gnosis/core/facts.md").exists());
+    cli(root, &["check"]);
+}
+
+#[test]
+fn removal_preserves_shared_dependencies_their_edits_and_pins() {
+    let fixture = Fixture::new();
+    let root = &fixture.consumer;
+    cli(&fixture.source, &["package", "other", "--owner", "@owner"]);
+    write(
+        &fixture.source,
+        "gnosis/other/package.toml",
+        "name = 'other'\nowner = '@owner'\ndependencies = ['core']\n",
+    );
+    commit(&fixture.source);
+    fixture.install();
+    cli(root, &["add", "team/other"]);
+    write(root, "gnosis/core/local.md", concept("Keep shared edits."));
+    let core = snapshot(&root.join("gnosis/core"));
+    let lock: toml::Value = toml::from_str(&read(root, "gnosis.lock")).unwrap();
+    write(
+        &fixture.source,
+        "gnosis/core/new.md",
+        concept("Do not fetch this."),
+    );
+    commit(&fixture.source);
+    cli(root, &["remove", "platform", "--force"]);
+    let after: toml::Value = toml::from_str(&read(root, "gnosis.lock")).unwrap();
+    assert_eq!(after["packages"]["core"], lock["packages"]["core"]);
+    assert_eq!(after["packages"]["other"], lock["packages"]["other"]);
+    assert_eq!(core, snapshot(&root.join("gnosis/core")));
+    assert!(!root.join("gnosis/platform").exists());
+    cli(root, &["check"]);
+}
+
+#[test]
+fn removal_keeps_explicit_dependencies_and_can_demote_a_shared_requirement() {
+    let fixture = Fixture::new();
+    fixture.install();
+    let root = &fixture.consumer;
+    cli(root, &["add", "core"]);
+    let output = cli(root, &["remove", "core"]);
+    assert!(output.contains("package retained"));
+    assert!(root.join("gnosis/core").exists());
+    let manifest: toml::Value = toml::from_str(&read(root, "gnosis.toml")).unwrap();
+    assert!(manifest["dependencies"].get("core").is_none());
+    cli(root, &["check"]);
+
+    cli(root, &["add", "core"]);
+    cli(root, &["remove", "platform"]);
+    assert!(root.join("gnosis/core").exists());
+    cli(root, &["check"]);
+    cli(root, &["remove", "core"]);
+    assert!(!root.join("gnosis/core").exists());
+    cli(root, &["check"]);
+}
+
+#[test]
+fn removal_protects_all_local_edits_unless_forced() {
+    for path in [
+        "gnosis/platform/facts.md",
+        "gnosis/core/local.md",
+        "gnosis/core/index.md",
+    ] {
+        let fixture = Fixture::new();
+        fixture.install();
+        let root = &fixture.consumer;
+        write(root, path, concept("Unpublished work."));
+        let before = snapshot(root);
+        fails(root, &["remove", "platform"], "has local changes");
+        assert_eq!(before, snapshot(root));
+        cli(root, &["remove", "platform", "--force"]);
+        assert!(!root.join("gnosis/core").exists());
+        assert!(!root.join("gnosis/platform").exists());
+        cli(root, &["check"]);
+    }
+}
+
+#[test]
+fn removal_ignores_generated_indexes_but_protects_deleted_concepts() {
+    let fixture = Fixture::new();
+    fixture.install();
+    let root = &fixture.consumer;
+    fs::remove_file(root.join("gnosis/core/facts.md")).unwrap();
+    let before = snapshot(root);
+    fails(root, &["remove", "platform"], "has local changes");
+    assert_eq!(before, snapshot(root));
+    fs::copy(
+        fixture.source.join("gnosis/core/facts.md"),
+        root.join("gnosis/core/facts.md"),
+    )
+    .unwrap();
+    write(
+        root,
+        "gnosis/core/index.md",
+        "<!-- Generated by gnosis. -->\nOld navigation.\n",
+    );
+    fs::remove_file(root.join("gnosis/platform/index.md")).unwrap();
+    cli(root, &["remove", "platform"]);
+    cli(root, &["check"]);
+}
+
+#[test]
+fn removal_handles_cycles_and_a_missing_package_directory() {
+    let fixture = Fixture::new();
+    write(
+        &fixture.source,
+        "gnosis/core/package.toml",
+        "name = 'core'\nowner = '@core'\ndependencies = ['platform']\n",
+    );
+    commit(&fixture.source);
+    fixture.install();
+    fs::remove_dir_all(fixture.consumer.join("gnosis/platform")).unwrap();
+    cli(&fixture.consumer, &["remove", "platform"]);
+    assert!(!fixture.consumer.join("gnosis/core").exists());
+    cli(&fixture.consumer, &["check"]);
+}
+
+#[test]
+fn removal_needs_only_removed_baselines_and_force_works_offline() {
+    let fixture = Fixture::new();
+    fixture.install();
+    let root = &fixture.consumer;
+    fs::rename(&fixture.source, fixture.temporary.path().join("offline")).unwrap();
+    let before = snapshot(root);
+    fails(root, &["remove", "platform"], "cannot verify local changes");
+    assert_eq!(before, snapshot(root));
+    cli(root, &["remove", "platform", "--force"]);
+    cli(root, &["check"]);
+}
+
+#[test]
+fn removal_does_not_resolve_sources_or_restore_retained_packages() {
+    let fixture = Fixture::new();
+    fixture.install();
+    let root = &fixture.consumer;
+    cli(root, &["add", "core"]);
+    git(&fixture.source, &["branch", "-m", "renamed"]);
+    write(
+        root,
+        "gnosis/core/local.md",
+        concept("Keep this without syncing."),
+    );
+    let core = snapshot(&root.join("gnosis/core"));
+    cli(root, &["remove", "platform"]);
+    assert_eq!(core, snapshot(&root.join("gnosis/core")));
+    cli(root, &["check"]);
+}
+
+#[test]
+fn removal_rejects_unknown_mismatched_transitive_and_unsafe_selectors() {
+    let fixture = Fixture::new();
+    fixture.install();
+    let root = &fixture.consumer;
+    let before = snapshot(root);
+    for (name, error) in [
+        ("missing", "unknown installed package"),
+        ("other/platform", "installed from team"),
+        ("core", "transitive dependency"),
+        ("../platform", "invalid name"),
+        ("/platform", "invalid name"),
+        ("team/", "invalid name"),
+        ("team/platform/extra", "invalid name"),
+    ] {
+        fails(root, &["remove", name, "--force"], error);
+        assert_eq!(before, snapshot(root));
+    }
+    cli(root, &["source", "other", fixture.source.to_str().unwrap()]);
+    let before = snapshot(root);
+    fails(
+        root,
+        &["remove", "platform", "--force"],
+        "manifest and lock differ",
+    );
+    assert_eq!(before, snapshot(root));
+}
+
+#[test]
+fn removal_requires_force_for_local_packages_and_preserves_manual_navigation() {
+    let directory = authoring_workspace();
+    let root = directory.path();
+    cli(root, &["new", "notes", "local-fact"]);
+    write(
+        root,
+        "gnosis/index.md",
+        "# Manual navigation\n\n[Notes](notes/index.md)\n",
+    );
+    let before = snapshot(root);
+    fails(root, &["remove", "notes"], "locally authored");
+    fails(root, &["remove", "team/notes", "--force"], "not imported");
+    assert_eq!(before, snapshot(root));
+    let output = cli_output(root, &["remove", "notes", "--force"]);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("preserved hand-authored"));
+    success(output);
+    assert!(!root.join("gnosis/notes").exists());
+    assert_eq!(
+        read(root, "gnosis/index.md"),
+        "# Manual navigation\n\n[Notes](notes/index.md)\n"
+    );
+    let manifest: toml::Value = toml::from_str(&read(root, "gnosis.toml")).unwrap();
+    assert!(manifest["packages"].as_array().unwrap().is_empty());
+    cli(root, &["check"]);
+}
+
+#[test]
+fn removal_cannot_break_remaining_local_package_dependencies() {
+    let fixture = Fixture::new();
+    let before = snapshot(&fixture.source);
+    fails(
+        &fixture.source,
+        &["remove", "core", "--force"],
+        "platform needs missing package core",
+    );
+    assert_eq!(before, snapshot(&fixture.source));
+    fixture.install();
+    let root = &fixture.consumer;
+    cli(root, &["package", "local", "--owner", "@owner"]);
+    write(
+        root,
+        "gnosis/local/package.toml",
+        "name = 'local'\nowner = '@owner'\ndependencies = ['core']\n",
+    );
+    let before = snapshot(root);
+    fails(
+        root,
+        &["remove", "platform", "--force"],
+        "local needs missing package core",
+    );
+    assert_eq!(before, snapshot(root));
+    cli(root, &["add", "core"]);
+    cli(root, &["remove", "platform"]);
+    cli(root, &["remove", "local", "--force"]);
+    assert!(root.join("gnosis/core").exists());
+    cli(root, &["check"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn removal_of_local_packages_enforces_contributor_policy_even_with_force() {
+    let directory = authoring_workspace();
+    let root = directory.path();
+    write(
+        root,
+        "gnosis/notes/package.toml",
+        "name = 'notes'\nowner = '@owner'\n[contributors]\nallow = ['alice']\n",
+    );
+    let before = snapshot(root);
+    let denied = cli_as(root, "bob", &["remove", "notes", "--force"]);
+    assert!(!denied.status.success());
+    assert!(String::from_utf8_lossy(&denied.stderr).contains("allowlist"));
+    assert_eq!(before, snapshot(root));
+    success(cli_as(root, "alice", &["remove", "notes", "--force"]));
+    cli(root, &["check"]);
+}
+
+#[test]
 fn indexes_preserve_concepts_extensions_and_hand_authored_indexes() {
     let fixture = Fixture::new();
     fixture.install();

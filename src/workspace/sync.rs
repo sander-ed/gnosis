@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail, ensure};
 
-use super::dependencies::{catalog, resolve, snapshot};
+use super::dependencies::{catalog, prune, resolve, snapshot};
 use super::inspection::validate_workspace;
 use super::transaction::{Change, Entry};
 use super::{Workspace, package_names};
@@ -90,15 +90,13 @@ impl Workspace {
                 !manifest.packages.contains(name),
                 "dependency {name} collides with a locally authored package"
             );
-            let mut upstream = snapshot(store, name, entry)?;
-            navigation::indexes(&mut upstream, name)?;
+            let upstream = snapshot(store, name, entry)?;
             let local = tree::subtree(&original, name);
             let content = if let Some(previous) = old.packages.get(name) {
                 if local.is_empty() {
                     upstream
                 } else {
-                    let mut base = snapshot(store, name, previous)?;
-                    navigation::indexes(&mut base, name)?;
+                    let base = snapshot(store, name, previous)?;
                     git::merge(
                         &navigation::without_generated_indexes(&base),
                         &navigation::without_generated_indexes(&local),
@@ -118,19 +116,7 @@ impl Workspace {
             navigation::indexes(&mut content, name)?;
             tree::replace_subtree(&mut tree, name, &content);
         }
-        for (name, previous) in &old.packages {
-            if locked.packages.contains_key(name) {
-                continue;
-            }
-            let local = tree::subtree(&original, name);
-            let mut base = snapshot(store, name, previous)?;
-            navigation::indexes(&mut base, name)?;
-            ensure!(
-                local.is_empty() || local == base,
-                "unused package {name} has local changes; preserve them outside gnosis/{name} before removing the dependency"
-            );
-            tree::replace_subtree(&mut tree, name, &Tree::new());
-        }
+        prune(&mut tree, &old, &locked, false, store)?;
         validate_workspace(&manifest, &locked, &tree)?;
         navigation::root_index(&mut tree, &package_names(&manifest, &locked))?;
         self.apply(vec![

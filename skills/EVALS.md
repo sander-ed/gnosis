@@ -353,7 +353,7 @@ temporary fixture paths after recording results.
 - All relative Markdown links resolve canonically and through installed links,
   including publication's contributor reference. No duplicate policy, navigation
   algorithm, CLI flag table, or approval workflow appears in another skill.
-- Current CLI source and freshly built help agree for all ten commands.
+- Current CLI source and freshly built help agree for all eleven commands.
 - Local links are checked, `.agents/` stays ignored, and host discovery is
   checked separately from filesystem resolution.
 - No product code, real catalog content, dependencies, or new test files changed.

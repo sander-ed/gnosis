@@ -27,6 +27,7 @@ Every synopsis below follows `gnosis` (and optional workspace selection).
 | `source NAME REPOSITORY [--ref REF]` | Registers a Git source under a local alias; ref defaults to `HEAD`. Uses Git authentication, not credentials embedded in URLs. |
 | `list` | Queries configured sources for published packages as `SOURCE/NAME`, not installed catalog content. |
 | `add NAME [--source SOURCE]` | Installs a package and transitive dependencies. Also accepts `SOURCE/NAME`; retains an existing selection or infers a unique publisher. Ambiguous publishers require an explicit source. |
+| `remove NAME [--force]` | Removes a local package or direct import; also accepts `SOURCE/NAME` for imports. Prunes unused imported dependencies, retains shared/explicit imports and pins. Local packages require `--force`; edited imports are protected without it. |
 | `sync [--update]` | Restores imports; retains existing pins under unchanged selections. Manifest/source changes can trigger resolution. `--update` refreshes all imports; there is no package selector. |
 | `check` | Checks basic OKF and package structure across the workspace; see the separate CI mode below. |
 | `index` | Refreshes generated navigation across the workspace without fetching or changing concepts; preserves hand-authored indexes. |
@@ -35,6 +36,15 @@ Every synopsis below follows `gnosis` (and optional workspace selection).
 `add` installs packages; it does not author knowledge. New-knowledge intake is
 [gnosis-author](../gnosis-author/SKILL.md). Installation and workspace setup have
 no owning workflow in this suite.
+
+`remove` leaves configured sources intact and never changes upstream. Ordinary
+import removal checks locked baselines; `--force` skips those checks and can
+discard edits in every pruned import, offline. It does not bypass local
+contributor rules or dependency validation. A transitive-only import cannot be
+removed directly. If another import needs the target, only its direct requirement
+is removed. Local removal does not prune dependencies. To keep an import needed
+by local knowledge, `add` it explicitly before removing its former parent.
+Manual catalog indexes are preserved; obsolete links need manual cleanup.
 
 ## Authoring arguments
 

@@ -28,10 +28,7 @@ pub(super) struct Args {
 
 impl Args {
     pub(super) fn run(self, workspace: &Workspace) -> Result<()> {
-        let (name, source) = match self.name.split_once('/') {
-            Some((source, name)) => (name, Some(source)),
-            None => (self.name.as_str(), None),
-        };
+        let (name, source) = super::package_selector(&self.name);
         workspace.propose(name, source, &self.output)
     }
 }

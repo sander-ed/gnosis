@@ -60,6 +60,19 @@ pub struct Lock {
     pub packages: BTreeMap<String, LockedPackage>,
 }
 
+impl Lock {
+    pub fn reachable(&self) -> BTreeSet<String> {
+        let mut reachable = BTreeSet::new();
+        let mut pending: Vec<_> = self.requirements.keys().cloned().collect();
+        while let Some(name) = pending.pop() {
+            if reachable.insert(name.clone()) {
+                pending.extend(self.packages[&name].dependencies.iter().cloned());
+            }
+        }
+        reachable
+    }
+}
+
 pub fn decode<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T> {
     ensure!(bytes.len() <= MAX_FILE, "metadata exceeds 16 MiB");
     Ok(toml::from_str(std::str::from_utf8(bytes)?)?)

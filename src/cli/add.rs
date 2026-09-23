@@ -14,17 +14,12 @@ pub(super) struct Args {
 
 impl Args {
     pub(super) fn run(self, workspace: &Workspace) -> Result<()> {
-        let (name, source) = match self.name.split_once('/') {
-            Some((alias, name)) => {
-                ensure!(
-                    self.source.as_deref().is_none_or(|source| source == alias),
-                    "package source {alias:?} conflicts with --source {:?}",
-                    self.source.as_deref().unwrap_or_default()
-                );
-                (name, Some(alias))
-            }
-            None => (self.name.as_str(), self.source.as_deref()),
-        };
-        workspace.add(name, source)
+        let (name, source) = super::package_selector(&self.name);
+        ensure!(
+            source.is_none() || self.source.is_none() || source == self.source.as_deref(),
+            "package source {source:?} conflicts with --source {:?}",
+            self.source
+        );
+        workspace.add(name, source.or(self.source.as_deref()))
     }
 }

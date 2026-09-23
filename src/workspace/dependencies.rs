@@ -5,7 +5,35 @@ use anyhow::{Context, Result, ensure};
 use crate::git::Store;
 use crate::metadata::{Lock, LockedPackage, Manifest};
 use crate::tree::Tree;
-use crate::{git, metadata, okf};
+use crate::{git, metadata, navigation, okf, tree};
+
+pub(super) fn prune(
+    tree: &mut Tree,
+    old: &Lock,
+    retained: &Lock,
+    force: bool,
+    store: &mut Store,
+) -> Result<Vec<String>> {
+    let mut removed = Vec::new();
+    for (name, previous) in &old.packages {
+        if retained.packages.contains_key(name) {
+            continue;
+        }
+        let local = tree::subtree(tree, name);
+        if !force && !local.is_empty() {
+            let base = snapshot(store, name, previous)
+                .with_context(|| format!("cannot verify local changes in unused package {name}"))?;
+            ensure!(
+                navigation::without_generated_indexes(&local)
+                    == navigation::without_generated_indexes(&base),
+                "unused package {name} has local changes; preserve them outside gnosis/{name} before removal, or use --force when removing its direct requirement"
+            );
+        }
+        tree::replace_subtree(tree, name, &Tree::new());
+        removed.push(name.clone());
+    }
+    Ok(removed)
+}
 
 pub(super) fn snapshot_content(
     store: &mut Store,

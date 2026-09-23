@@ -127,6 +127,38 @@ gnosis/
 Installed files are editable. The lock records their upstream baseline; local
 changes are tracked by your project's Git repository.
 
+## Remove a package
+
+```sh
+gnosis remove team/platform  # NAME also works
+```
+
+For an imported package, `remove` drops its direct requirement and deletes
+packages no longer reachable from the remaining requirements, including unused
+transitive dependencies. Shared dependencies and explicitly added packages stay
+installed at their current pins, with their local files unchanged. If another
+import still needs the named package, only its direct requirement is removed.
+A transitive-only dependency cannot be removed on its own.
+
+Removal checks each deleted import against its locked upstream content and
+refuses to discard local edits, including edits to dependencies. Generated
+indexes do not count as edits; hand-authored indexes do. Preserve your work first,
+or explicitly discard it with `gnosis remove platform --force`. This skips
+upstream checks and works offline; ordinary removal needs access to the locked
+commits being checked, but does not resolve sources or update other packages.
+Sync first if your manifest and lock disagree.
+
+Locally authored packages require `gnosis remove NAME --force`. This deletes
+their knowledge and unregisters them, but does not prune their dependencies;
+local contributor rules still apply. No removal, even with `--force`, may leave
+a remaining local package with missing dependencies. Use `gnosis add DEPENDENCY`
+to retain an imported dependency explicitly before removing its former parent.
+
+The manifest, lock, and generated catalog index are updated together. Configured
+sources are kept. Hand-authored catalog indexes are preserved with a reminder
+to remove obsolete links yourself. Nothing is committed or changed upstream;
+review and commit the workspace diff with Git.
+
 ## Write knowledge
 
 `new` creates a document or navigation folder inside an existing local or
@@ -189,7 +221,7 @@ and selected upstream revision. Generated indexes are rebuilt after merging.
 Conflicts or invalid documents leave the workspace and lock unchanged; resolve
 the reported issues before retrying. Unused dependencies with local changes
 must be preserved before removal. Deleting an installed directory causes sync
-to restore it; remove a direct requirement from `gnosis.toml` to stop requesting it.
+to restore it; use `gnosis remove NAME` to stop requesting a package.
 
 To contribute changes, edit the installed package in your consuming workspace,
 then prepare a separate source checkout:
@@ -233,10 +265,11 @@ teams and identity-provider groups synced to GitHub teams. Matching ignores case
 and an optional `@`. Deny wins; omitting `allow` permits anyone not denied, while
 `allow = []` permits nobody. Ownership does not bypass these rules.
 
-`new` checks the local package policy; `propose` checks the latest source package
-policy. Restricted operations use your authenticated `gh` account. Team checks
-require `read:org` or organization **Members: read** access and stop if membership
-cannot be verified. See [GitHub's team API](https://docs.github.com/en/rest/teams/members#list-team-members).
+`new` and removal of local packages check the local package policy; `propose`
+checks the latest source package policy. Restricted operations use your
+authenticated `gh` account. Team checks require `read:org` or organization
+**Members: read** access and stop if membership cannot be verified.
+See [GitHub's team API](https://docs.github.com/en/rest/teams/members#list-team-members).
 
 For local and imported contributions, required CI can run
 `gnosis check --contributor "$PR_AUTHOR" --base "$BASE_SHA" --head "$HEAD_SHA"`
@@ -256,6 +289,7 @@ policy yet. Local checks do not prevent direct edits or replace GitHub permissio
 | `source` | Configure a Git source |
 | `list` | List packages published by configured sources |
 | `add` | Install a package and its dependencies |
+| `remove` | Remove a package requirement and unused imported dependencies |
 | `sync` | Restore imports, or update them with `--update` |
 | `check` | Validate basic OKF and package structure |
 | `index` | Refresh generated navigation |
@@ -312,7 +346,7 @@ To build without installing, run `cargo build --locked` and use
 | --- | --- |
 | `src/main.rs` | Startup and error reporting |
 | `src/cli/` | Subcommand arguments, help, and execution adapters |
-| `src/workspace/` | Authoring, sources, dependency resolution, sync, proposals, and transactions |
+| `src/workspace/` | Authoring, sources, dependency resolution, sync, removal, proposals, and transactions |
 | `src/metadata.rs` | Manifest, lock, package, and source metadata |
 | `src/contributors.rs` | Contributor rules and GitHub identity checks |
 | `src/okf.rs` | Concept metadata and document validation |
@@ -320,9 +354,10 @@ To build without installing, run `cargo build --locked` and use
 | `src/tree.rs` | File trees and path validation |
 | `src/git.rs` | Git snapshots, merges, and proposal checkouts |
 
-Each subcommand owns its arguments and `run` method in `src/cli/`. Register new
-commands in `src/cli/mod.rs` and put their business logic in the appropriate
-workspace module. Shared domain code should not depend on Clap types.
+Simple commands are defined and dispatched in `src/cli/mod.rs`; commands with
+larger argument sets or adapters have their own modules in `src/cli/`. Put
+business logic in the appropriate workspace module. Shared domain code should
+not depend on Clap types.
 
 ### Checks
 

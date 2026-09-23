@@ -3,6 +3,7 @@ mod contributions;
 mod dependencies;
 mod inspection;
 mod proposal;
+mod removal;
 mod sources;
 mod sync;
 mod transaction;
@@ -125,15 +126,8 @@ impl Workspace {
                 "lock is missing root requirement {source}/{name}"
             );
         }
-        let mut reachable = BTreeSet::new();
-        let mut pending: Vec<_> = lock.requirements.keys().cloned().collect();
-        while let Some(name) = pending.pop() {
-            if reachable.insert(name.clone()) {
-                pending.extend(lock.packages[&name].dependencies.iter().cloned());
-            }
-        }
         ensure!(
-            reachable.len() == lock.packages.len(),
+            lock.reachable().len() == lock.packages.len(),
             "lock contains packages outside the requested dependency graph"
         );
         Ok(lock)

@@ -84,9 +84,10 @@ Reserve `index.md` and `log.md` rather than using them as concept names. Preserv
 existing log history; do not require logs where no convention establishes them.
 Folder metadata is not inherited by child concepts.
 
-There is no move/delete command. Deletion, relocation, bulk reorganization, and
-workspace initialization require separately scoped tasks, not implied steps in
-an addition. Temporary drafts belong outside the catalog. Do not run package
+There is no document move/delete command; `gnosis remove` removes whole packages,
+not individual concepts. Deletion, relocation, bulk reorganization, and workspace
+initialization require separately scoped tasks, not implied steps in an addition.
+Temporary drafts belong outside the catalog. Do not run package
 scripts, SQL, executors, or attesters merely because source material includes them.
 
 Local edits to imported packages are allowed. Authoring ends at validated local
