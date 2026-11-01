@@ -53,9 +53,15 @@ enum Command {
         force: bool,
     },
     /// Restore imported packages at locked commits; use --update for newer knowledge.
+    ///
+    /// When a package's pinned upstream content changes, its local edits are replaced
+    /// with upstream; review the result with git diff. Use --merge to keep them instead.
     Sync {
         #[arg(long)]
         update: bool,
+        /// Three-way merge local edits with upstream, leaving Git-style conflict markers.
+        #[arg(long)]
+        merge: bool,
     },
     Check(check::Args),
     /// Refresh local navigation after manual edits; never fetch or change concepts.
@@ -85,7 +91,7 @@ impl Cli {
                 let (name, source) = package_selector(&name);
                 workspace.remove(name, source, force)
             }
-            Command::Sync { update } => workspace.sync(update),
+            Command::Sync { update, merge } => workspace.sync(update, merge),
             Command::Check(args) => args.run(&workspace),
             Command::Index => workspace.index(),
             Command::Propose(args) => args.run(&workspace),

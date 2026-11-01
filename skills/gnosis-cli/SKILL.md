@@ -28,7 +28,7 @@ Every synopsis below follows `gnosis` (and optional workspace selection).
 | `list` | Queries configured sources for published packages as `SOURCE/NAME`, not installed catalog content. |
 | `add NAME [--source SOURCE]` | Installs a package and transitive dependencies. Also accepts `SOURCE/NAME`; retains an existing selection or infers a unique publisher. Ambiguous publishers require an explicit source. |
 | `remove NAME [--force]` | Removes a local package or direct import; also accepts `SOURCE/NAME` for imports. Prunes unused imported dependencies, retains shared/explicit imports and pins. Local packages require `--force`; edited imports are protected without it. |
-| `sync [--update]` | Restores imports; retains existing pins under unchanged selections. Manifest/source changes can trigger resolution. `--update` refreshes all imports; there is no package selector. |
+| `sync [--update] [--merge]` | Restores imports; retains existing pins under unchanged selections. Manifest/source changes, such as a changed source ref, can trigger resolution. `--update` refreshes all imports; there is no package selector. `--merge` keeps local edits by merging instead of replacing. |
 | `check` | Checks basic OKF and package structure across the workspace; see the separate CI mode below. |
 | `index` | Refreshes generated navigation across the workspace without fetching or changing concepts; preserves hand-authored indexes. |
 | `propose NAME --output PATH` | Prepares an imported package's changes in a separate source checkout; also accepts `SOURCE/NAME` matching its lock entry. Does not commit, push, or open a PR. |
@@ -91,8 +91,14 @@ paths against trusted base policy, not document structure. The caller supplies
 authenticated PR identity and trusted revisions; Git authors or a locally
 asserted login are not authentication.
 
-Sync three-way merges the prior upstream baseline, local content, and selected
-upstream revision. Conflicts or invalid documents leave the workspace and lock
+By default, sync replaces each package whose upstream content changed with the
+new upstream version, discarding local edits and local-only files there, and
+lists the replaced files. Packages with unchanged upstream content keep local
+edits. Nothing is committed; `git diff` shows the change. With `--merge`, sync
+three-way merges the prior upstream baseline, local content, and new upstream
+revision; conflicts are written as `<<<<<<< local` / `>>>>>>> upstream` markers,
+the lock moves, and the listed files must be resolved before `gnosis index` and
+`gnosis check`. Invalid upstream documents leave the workspace and lock
 unchanged; there are no `--continue` or `--abort` commands.
 
 `propose` reads the source from the lock, merges onto its current ref, and stages

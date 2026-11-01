@@ -11,8 +11,8 @@ them as editable Markdown files.
   from a Git repository.
 - **Keep versions predictable.** A lock file records the exact upstream commits
   your project uses.
-- **Make local changes.** Edit installed knowledge in your project, then merge
-  upstream updates when you choose.
+- **Make local changes.** Edit installed knowledge in your project. Upstream
+  updates replace those edits by default, or merge with them when you choose.
 - **Contribute improvements back.** Prepare changes for review in the source
   repository using your normal Git and pull request workflow.
 
@@ -79,8 +79,9 @@ a Git repository that publishes packages for other projects to install.
 
 Gnosis tracks installed packages in `gnosis.lock`, including their exact
 upstream commits. Installed files are part of your project: you can read, edit,
-and commit them like any other Markdown. Updating from upstream is explicit,
-and Gnosis merges those updates with your local edits.
+and commit them like any other Markdown. Updating from upstream is explicit.
+By default the upstream version wins; `gnosis sync --merge` merges updates with
+your local edits instead.
 
 Commands operate in the current directory. Use `gnosis -C /path/to/project COMMAND`
 to select another workspace; parent directories are not searched.
@@ -202,13 +203,14 @@ Hand-authored indexes are preserved; add links to them manually when needed.
 
 ```sh
 gnosis sync                   # Restore packages using existing pins
-gnosis sync --update          # Fetch newer revisions and merge local changes
+gnosis sync --update          # Fetch newer revisions; upstream replaces local edits
+gnosis sync --update --merge  # Fetch newer revisions and merge local edits
 git diff
 ```
 
 Ordinary sync retains pins when source selections are unchanged. Manifest or
-source changes trigger dependency resolution. Updates apply to all imported
-packages.
+source changes, such as switching a source `--ref` from a feature branch to
+`main`, trigger dependency resolution. Updates apply to all imported packages.
 
 Package dependencies are names in `package.toml`. They describe required
 knowledge, without version compatibility constraints. Cycles are supported.
@@ -216,10 +218,21 @@ If several sources publish a dependency, select one explicitly with
 `gnosis add NAME --source SOURCE`. Sources declared inside downloaded manifests
 are not followed automatically.
 
-Sync uses a three-way merge of the previous upstream baseline, local content,
-and selected upstream revision. Generated indexes are rebuilt after merging.
-Conflicts or invalid documents leave the workspace and lock unchanged; resolve
-the reported issues before retrying. Unused dependencies with local changes
+The pinned source is authoritative. When a package's upstream content changes,
+sync replaces the installed package with the new upstream version, discarding
+local edits and local-only files in that package. Sync lists the replaced
+files. Nothing is committed, so `git diff` shows exactly what changed from your
+version. Commit local edits before syncing if you may want them back; packages
+whose upstream content did not change keep your edits.
+
+With `--merge`, sync instead three-way merges the previous upstream baseline,
+local content, and new upstream revision. Conflicting files receive Git-style
+`<<<<<<< local` / `>>>>>>> upstream` markers, and the lock moves to the new
+pins. The conflicted packages keep their previous generated indexes. Resolve
+the listed files, then run `gnosis index` and `gnosis check`.
+
+Generated indexes are rebuilt after syncing. Invalid upstream documents leave
+the workspace and lock unchanged. Unused dependencies with local changes
 must be preserved before removal. Deleting an installed directory causes sync
 to restore it; use `gnosis remove NAME` to stop requesting a package.
 
@@ -290,7 +303,7 @@ policy yet. Local checks do not prevent direct edits or replace GitHub permissio
 | `list` | List packages published by configured sources |
 | `add` | Install a package and its dependencies |
 | `remove` | Remove a package requirement and unused imported dependencies |
-| `sync` | Restore imports, or update them with `--update` |
+| `sync` | Restore imports, or update them with `--update`; `--merge` keeps local edits |
 | `check` | Validate basic OKF and package structure |
 | `index` | Refresh generated navigation |
 | `propose` | Prepare an imported package's changes for upstream review |

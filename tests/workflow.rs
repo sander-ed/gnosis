@@ -239,7 +239,7 @@ fn collaborative_round_trip_preserves_edits_and_isolates_proposals() {
     cli(consumer, &["sync"]);
     assert!(!consumer.join("gnosis/platform/upstream.md").exists());
     assert!(read(consumer, "gnosis.lock").contains(pinned.trim()));
-    cli(consumer, &["sync", "--update"]);
+    cli(consumer, &["sync", "--update", "--merge"]);
     assert!(consumer.join("gnosis/platform/local.md").exists());
     assert!(consumer.join("gnosis/platform/upstream.md").exists());
     assert!(read(consumer, "gnosis.lock").contains(&newer));
@@ -308,39 +308,107 @@ fn collaborative_round_trip_preserves_edits_and_isolates_proposals() {
 }
 
 #[test]
-fn conflicts_leave_every_package_and_metadata_unchanged() {
+fn moved_pins_take_upstream_unless_merging_with_conflict_markers() {
+    let fixture = Fixture::new();
+    let (source, consumer) = (&fixture.source, &fixture.consumer);
+    let location = source.to_str().unwrap();
+    fixture.install();
+    git(source, &["checkout", "--quiet", "-b", "feature"]);
+    write(
+        source,
+        "gnosis/platform/facts.md",
+        concept("Feature knowledge."),
+    );
+    commit(source);
+    cli(consumer, &["source", "team", location, "--ref", "feature"]);
+    cli(consumer, &["sync"]);
+    assert!(read(consumer, "gnosis/platform/facts.md").contains("Feature knowledge."));
+
+    write(
+        consumer,
+        "gnosis/platform/facts.md",
+        concept("Local replacement."),
+    );
+    write(
+        consumer,
+        "gnosis/platform/local.md",
+        concept("Local addition."),
+    );
+    write(
+        consumer,
+        "gnosis/core/private.md",
+        concept("Edit to an unchanged package."),
+    );
+    let head = commit(consumer);
+    git(source, &["checkout", "--quiet", "main"]);
+    git(source, &["merge", "--quiet", "--ff-only", "feature"]);
+    write(
+        source,
+        "gnosis/platform/facts.md",
+        concept("Upstream replacement."),
+    );
+    let main = commit(source);
+    cli(consumer, &["source", "team", location, "--ref", "main"]);
+
+    let output = cli(consumer, &["sync"]);
+    assert!(output.contains("gnosis/platform/facts.md"));
+    assert!(output.contains("gnosis/platform/local.md"));
+    assert!(!output.contains("private.md"));
+    assert!(read(consumer, "gnosis/platform/facts.md").contains("Upstream replacement."));
+    assert!(!consumer.join("gnosis/platform/local.md").exists());
+    assert!(read(consumer, "gnosis/core/private.md").contains("unchanged package"));
+    assert!(read(consumer, "gnosis.lock").contains(&main));
+    cli(consumer, &["check"]);
+    assert_eq!(git(consumer, &["rev-parse", "HEAD"]).trim(), head);
+    let changed = git(consumer, &["diff", "--name-only"]);
+    assert!(changed.contains("gnosis/platform/facts.md"));
+    assert!(changed.contains("gnosis/platform/local.md"));
+    assert!(git(consumer, &["diff", "--cached", "--name-only"]).is_empty());
+
+    git(consumer, &["checkout", "--quiet", "--", "."]);
+    cli(consumer, &["source", "team", location, "--ref", "main"]);
+    let output = cli(consumer, &["sync", "--merge"]);
+    assert!(output.contains("gnosis/platform/facts.md"));
+    let facts = read(consumer, "gnosis/platform/facts.md");
+    for expected in [
+        "<<<<<<< local",
+        "Local replacement.",
+        "Upstream replacement.",
+        ">>>>>>> upstream",
+    ] {
+        assert!(facts.contains(expected), "missing {expected:?} in {facts}");
+    }
+    assert!(consumer.join("gnosis/platform/local.md").exists());
+    assert!(consumer.join("gnosis/platform/index.md").exists());
+    assert!(read(consumer, "gnosis.lock").contains(&main));
+    assert_eq!(git(consumer, &["rev-parse", "HEAD"]).trim(), head);
+
+    write(consumer, "gnosis/platform/facts.md", concept("Resolved."));
+    cli(consumer, &["index"]);
+    cli(consumer, &["check"]);
+    cli(consumer, &["sync"]);
+    assert!(read(consumer, "gnosis/platform/facts.md").contains("Resolved."));
+    assert!(consumer.join("gnosis/platform/local.md").exists());
+}
+
+#[test]
+fn conflicted_frontmatter_is_written_without_validation() {
     let fixture = Fixture::new();
     fixture.install();
     write(
         &fixture.consumer,
         "gnosis/platform/facts.md",
-        concept("Local replacement."),
+        "---\ntype: Local\n---\n# Knowledge\n",
     );
     write(
         &fixture.source,
         "gnosis/platform/facts.md",
-        concept("Different upstream replacement."),
-    );
-    write(
-        &fixture.source,
-        "gnosis/core/new.md",
-        concept("Should not be partially installed."),
+        "---\ntype: Upstream\n---\n# Knowledge\n",
     );
     commit(&fixture.source);
-    let before = snapshot(&fixture.consumer);
-    fails(
-        &fixture.consumer,
-        &["sync", "--update"],
-        "cannot merge package platform",
-    );
-    assert_eq!(before, snapshot(&fixture.consumer));
-    write(
-        &fixture.consumer,
-        "gnosis/platform/facts.md",
-        concept("Different upstream replacement."),
-    );
-    cli(&fixture.consumer, &["sync", "--update"]);
-    assert!(fixture.consumer.join("gnosis/core/new.md").exists());
+    cli(&fixture.consumer, &["sync", "--update", "--merge"]);
+    assert!(read(&fixture.consumer, "gnosis/platform/facts.md").contains("<<<<<<< local"));
+    fails(&fixture.consumer, &["check"], "platform");
 }
 
 #[test]
@@ -1171,7 +1239,7 @@ fn folder_metadata_survives_upstream_sync_and_package_proposals() {
         concept("New upstream content."),
     );
     commit(&fixture.source);
-    cli(&fixture.consumer, &["sync", "--update"]);
+    cli(&fixture.consumer, &["sync", "--update", "--merge"]);
     assert_eq!(
         read(&fixture.consumer, "gnosis/platform/snowflake/index.yml"),
         metadata

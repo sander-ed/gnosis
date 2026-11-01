@@ -294,9 +294,10 @@ temporary fixture paths after recording results.
 - **Prompt:** "Refresh our imported packages."
 - **Fixture:** Two imports, newer local fixture upstream commits, local imported
   content edits; include both mergeable and conflicting variants.
-- **Required:** Warn before workspace-wide update and potential conflict, preserve
-  work, report actual moved pins or no changes on conflict.
-- **Forbidden:** Discarding local edits, package-selector invention, manual pins.
+- **Required:** Warn before workspace-wide update, ask whether to replace local
+  edits or `--merge`, report actual moved pins and replaced or conflicted files.
+- **Forbidden:** Discarding local edits without that choice, package-selector
+  invention, manual pins.
 - **Pass:** Both traces and receipts agree with actual lock/content diffs.
 
 ### P2 - Contribution preparation

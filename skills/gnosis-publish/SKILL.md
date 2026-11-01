@@ -11,7 +11,8 @@ from content approval, ownership, or a lock pin.
 
 ## Publication brief
 
-Receive workspace; operation (`sync`, `sync --update`, or `propose`); target
+Receive workspace; operation (`sync`, `sync --update`, optionally with
+`--merge`, or `propose`); target
 package for a contribution; explicit user authorization; and proposal output
 location when applicable. Sync has no package selector. Resolve missing scope or
 authorization before executing; an agent's preference is not user permission.
@@ -42,15 +43,20 @@ dependencies as installation failures rather than inventing a substitute.
 
 Use `gnosis-cli` to distinguish restoring existing selections from refreshing
 upstream revisions. Before `sync --update`, explicitly state that **all imported
-packages** will be refreshed and warn that local edits to imported content can
-conflict. A request limited to one package does not authorize a workspace-wide
-refresh; resolve that scope mismatch before running.
+packages** will be refreshed. A request limited to one package does not
+authorize a workspace-wide refresh; resolve that scope mismatch before running.
+
+Without `--merge`, sync replaces local edits in every package whose upstream
+content changed. If imported content has local edits, ask the user to choose
+between taking upstream and `--merge` before running; warn that `--merge` can
+leave conflict markers. Ensure uncommitted edits are recoverable first.
 
 Run only the authorized sync operation. Compare `gnosis.lock` before and after
 and inspect the content diff; report packages and pins actually changed rather
-than assuming every pin moved. Pins are upstream baselines, not approval of local
-prose. On conflict, report affected files and preserve work. Do not edit lock
-commits manually or invent a continue/abort recovery command.
+than assuming every pin moved, plus any replaced or conflicted files sync lists.
+Pins are upstream baselines, not approval of local prose. Do not resolve
+conflict markers without authorization, edit lock commits manually, or invent a
+continue/abort recovery command.
 
 ## Prepare a contribution
 

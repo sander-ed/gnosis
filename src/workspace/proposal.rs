@@ -59,12 +59,18 @@ impl Workspace {
         );
         let package = metadata::package(&upstream, name)?;
         contributors::check_authenticated(package.contributors.as_ref())?;
-        let mut merged = git::merge(
+        let merged = git::merge(
             &base,
             &local,
             &navigation::without_generated_indexes(&upstream),
-            name,
         )?;
+        ensure!(
+            merged.conflicts.is_empty(),
+            "cannot merge package {name}; workspace and lock are unchanged.\n\
+             Reconcile these files against upstream, then retry: {}",
+            merged.conflicts.join(", ")
+        );
+        let mut merged = merged.tree;
         metadata::package(&merged, name)?;
         navigation::indexes(&mut merged, name)?;
         let output = self.root.join(output);

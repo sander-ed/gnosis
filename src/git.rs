@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use tempfile::TempDir;
 
 use crate::metadata::{self, Source};
@@ -223,12 +223,22 @@ fn commit_snapshot(repository: &Path, tree: &Tree, message: &str) -> Result<()> 
     Ok(())
 }
 
-pub fn merge(base: &Tree, local: &Tree, upstream: &Tree, package: &str) -> Result<Tree> {
+pub struct Merge {
+    pub tree: Tree,
+    /// Paths left with conflict markers or conflicting versions in `tree`.
+    pub conflicts: Vec<String>,
+}
+
+pub fn merge(base: &Tree, local: &Tree, upstream: &Tree) -> Result<Merge> {
+    let clean = |tree: &Tree| Merge {
+        tree: tree.clone(),
+        conflicts: Vec::new(),
+    };
     if base == local || local == upstream {
-        return Ok(upstream.clone());
+        return Ok(clean(upstream));
     }
     if base == upstream {
-        return Ok(local.clone());
+        return Ok(clean(local));
     }
     let temporary = tempfile::tempdir()?;
     let directory = temporary.path();
@@ -244,23 +254,40 @@ pub fn merge(base: &Tree, local: &Tree, upstream: &Tree, package: &str) -> Resul
     commit_snapshot(directory, upstream, "upstream")?;
     let output = command(
         directory,
-        &["merge-tree", "--write-tree", "local", "upstream"],
+        &[
+            "merge-tree",
+            "--write-tree",
+            "-z",
+            "--name-only",
+            "local",
+            "upstream",
+        ],
         true,
     )?;
-    if !output.status.success() {
-        bail!(
-            "cannot merge package {package}; workspace and lock are unchanged.\n\
-             Reconcile the reported files against upstream, then retry.\n{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    let output = String::from_utf8(output.stdout)?;
-    let tree = output
-        .lines()
+    // Exit status 1 reports conflicts; the written tree then contains conflict markers.
+    ensure!(
+        matches!(output.status.code(), Some(0 | 1)),
+        "Git merge-tree failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout)?;
+    let mut fields = stdout.split('\0');
+    let tree = fields
         .next()
+        .filter(|tree| !tree.is_empty())
         .context("Git did not return a merged tree")?;
-    tree_at(directory, tree, "")
+    let conflicts = if output.status.success() {
+        Vec::new()
+    } else {
+        fields
+            .take_while(|path| !path.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    Ok(Merge {
+        tree: tree_at(directory, tree, "")?,
+        conflicts,
+    })
 }
 
 pub fn prepare(
