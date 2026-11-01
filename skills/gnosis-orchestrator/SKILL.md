@@ -1,6 +1,6 @@
 ---
 name: gnosis-orchestrator
-description: Entry point for all Gnosis knowledge work. Works out what the user needs, routes to the right gnosis skill, and runs multi-step workflows such as capture, correction, review, drift repair, refresh, and contribution, carrying approvals and handoffs between skills. Use for any Gnosis catalog request when the specific skill is not already known.
+description: Entry point for all Gnosis knowledge work. Works out what the user needs, routes to the right gnosis skill, and runs multi-step workflows such as capture, correction, review, drift repair, refresh, and contribution, carrying approvals and handoffs between skills. Use whenever a request mentions Gnosis, the knowledge catalog, or retained knowledge; it decides whether catalog context or changes are needed.
 ---
 
 # Gnosis orchestrator
@@ -27,6 +27,12 @@ When a request fits more than one row, choose by outcome: whether the catalog
 changes, who decides the content, and whether anything moves upstream. If it is
 still unclear, ask one focused question. If the user asks for several things,
 state the order you will run them in and confirm it before writing anything.
+
+If the request only mentions Gnosis but needs neither catalog context nor a
+catalog change (for example, work on code that uses Gnosis), say so in one line
+and return to the caller without routing. If the work would benefit from what
+the catalog already says, route a focused lookup to `gnosis-navigate` and return
+its result as context for the task.
 
 Installation, workspace setup, and source configuration are reference-only:
 answer with `gnosis-cli` and do not run them as part of a workflow.

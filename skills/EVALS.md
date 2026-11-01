@@ -485,7 +485,7 @@ merely by reading these rules.
 | A1-A9, E1-E3 | UNRUN | Intake, approval turns, extraction variants, and readiness cases still need the described clean-context runs and actual user follow-ups. |
 | U1-U6, P1-P3, X1-X3 | UNRUN | Disposable authoring/import/policy/installation fixtures and clean-context executions remain; product smoke tests do not substitute for them. |
 | R2-R3, D2-D3 | UNRUN | Need a host run without subagents (R2), an authoring session with a draft review (R3), and the expired/matching and imported-package drift fixtures. |
-| Orchestrator structural check | PASS | 2026-11-01: Ruby/Psych parsed all eight frontmatters; names match and descriptions are ≤ 344 characters; 57 relative links resolved with none broken; line counts are within targets (orchestrator 89, author 177). |
+| Orchestrator structural check | PASS | 2026-11-01: Ruby/Psych parsed all eight frontmatters; names match and descriptions are ≤ 407 characters; 57 relative links resolved with none broken; line counts are within targets (orchestrator 95, author 177). |
 
 Total behavioral coverage: **7 of 40 scenarios passed, 33 unrun**. No model ID
 was exposed by the evaluation task results; no model override was requested.
