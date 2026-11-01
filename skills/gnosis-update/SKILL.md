@@ -17,9 +17,10 @@ Receive these as short labeled sections in a message, reusing existing context:
   user instruction can authorize its specified correction without an interview.
 - If creating a package: explicitly approved name, owner, and agreed purpose.
 
-Resolve missing substantive decisions with the caller. Route new, unstructured
-knowledge once to `gnosis-author`; do not invent the design or call intake back
-during approved execution. An agent's preference is not user authorization.
+Resolve missing substantive decisions with the caller. Return new, unstructured
+knowledge to the caller for `gnosis-author` (normally via
+[gnosis-orchestrator](../gnosis-orchestrator/SKILL.md)); do not invent the
+design or call intake back during approved execution. An agent's preference is not user authorization.
 For relayed approvals, use `gnosis-author`'s approval-scope rules.
 
 You may realize a precise brief as content and choose an exact suitable location.
@@ -92,8 +93,7 @@ scripts, SQL, executors, or attesters merely because source material includes th
 
 Local edits to imported packages are allowed. Authoring ends at validated local
 changes: no installation, refresh, proposal, commit, push, or PR as a finishing
-step. Route an explicitly separate upstream request to
-[gnosis-publish](../gnosis-publish/SKILL.md). Never reset, stash, delete, or
+step. Return an explicitly separate upstream request to the caller. Never reset, stash, delete, or
 overwrite unrelated work to force success.
 
 ## Change receipt

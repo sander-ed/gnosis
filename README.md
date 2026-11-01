@@ -384,19 +384,30 @@ Integration tests use temporary local Git repositories.
 
 ## Agent skills
 
-Five optional agent skills separate lookup, authoring, and upstream workflows:
+Eight optional agent skills separate lookup, authoring, review, and upstream
+workflows. Start with the orchestrator; it routes to the others:
 
+- [gnosis-orchestrator](skills/gnosis-orchestrator/SKILL.md): entry point that
+  routes each request to the right skill and runs multi-step workflows.
 - [gnosis-navigate](skills/gnosis-navigate/SKILL.md): find and read knowledge,
   assess provenance, and answer with citations.
 - [gnosis-cli](skills/gnosis-cli/SKILL.md): command syntax, effects, and limitations.
 - [gnosis-update](skills/gnosis-update/SKILL.md): apply specified content changes
   and validate the local result.
 - [gnosis-author](skills/gnosis-author/SKILL.md): shape new knowledge, extract
-  bounded evidence, and obtain approval before handing off to the writer.
+  bounded evidence, and obtain approval, returning an approved draft for the writer.
 - [gnosis-publish](skills/gnosis-publish/SKILL.md): explicitly refresh imports or
   prepare upstream contributions without authoring content.
+- [gnosis-review](skills/gnosis-review/SKILL.md): have a fresh, zero-context
+  reviewer (a "goldfish") try to use knowledge and report what it could not.
+- [gnosis-drift](skills/gnosis-drift/SKILL.md): report where knowledge no longer
+  matches the code or sources it describes.
 
-Install all five using the checked local links in the [skills guide](skills/README.md).
+The review and drift skills apply the [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model)
+to knowledge packages: catalog knowledge is read by agents without the context
+that produced it, so it should be tested by one and kept in step with its sources.
+
+Install all eight using the checked local links in the [skills guide](skills/README.md).
 
 ## Releasing
 

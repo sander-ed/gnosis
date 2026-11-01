@@ -51,7 +51,8 @@ draft, deprecated, stale, unsupported, or conflicting content.
 A recent edit, `stable` status, package owner, or lock pin is not verification.
 The workspace-root `gnosis.lock` records imported upstream baselines; local prose
 may differ. Contributor rules govern contributions, not permission to read
-installed knowledge.
+installed knowledge. For a systematic comparison of concepts with the code or
+sources they describe, use [gnosis-drift](../gnosis-drift/SKILL.md).
 
 ## Read-only boundary
 

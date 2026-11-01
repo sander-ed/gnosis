@@ -1,16 +1,24 @@
 ---
 name: gnosis-author
-description: Shapes new or unstructured Gnosis knowledge, gathers bounded evidence, and obtains approval before handing a draft to gnosis-update. Also returns evidence-only source extractions. Use for knowledge intake or ingesting supplied sources, not the package-installing gnosis add command.
+description: Shapes new or unstructured Gnosis knowledge into an approved draft by running intake, gathering bounded evidence, and obtaining approvals. Also returns evidence-only source extractions. Use for knowledge intake or ingesting supplied sources, not the package-installing gnosis add command; it does not write to the catalog.
 ---
 
 # Author knowledge
 
-Own intent, evidence, synthesis, and quality decisions, not catalog writes.
-Receive a goal, existing user context, optional evidence, and any prior approvals.
-Return an approved draft through `gnosis-update` and relay its receipt, or return
-an evidence packet in extraction-only mode.
+Own intent, evidence, synthesis, quality, and content approval, not catalog
+writes or the steps that follow. Receive a goal, existing user context, optional
+evidence, and any prior approvals. Return one of:
 
-## Select the mode and compose
+- An **approved draft packet** for the caller to hand to the writer.
+- A **review request** when the user wants a goldfish review before approval.
+- An **evidence packet** in extraction-only mode.
+- A precise **blocker** when readiness cannot be reached.
+
+The caller is normally [gnosis-orchestrator](../gnosis-orchestrator/SKILL.md),
+which runs the next step. When invoked directly, return the packet to the user
+or calling agent with the next step named.
+
+## Select the mode and dependencies
 
 For a bounded research request with **no catalog outcome**, load
 [source extraction](references/source-extraction.md), answer its research brief,
@@ -26,8 +34,8 @@ Use [gnosis-navigate](../gnosis-navigate/SKILL.md) early for an existing home,
 overlap, and package conventions. Reuse current findings and supplied answers;
 extend existing knowledge or report no needed change rather than duplicate it.
 Use [gnosis-cli](../gnosis-cli/SKILL.md) only if a command/scaffolding question
-arises. The writer is [gnosis-update](../gnosis-update/SKILL.md), whose change
-brief and receipt define the handoff.
+arises. The approved draft packet must satisfy the change brief of
+[gnosis-update](../gnosis-update/SKILL.md), the writer, but do not invoke it.
 
 Invoke dependencies by exact skill name when supported; otherwise read the
 linked instructions and perform that role. Keep the active brief and approvals
@@ -55,7 +63,7 @@ that affect usefulness. Do not make the user repeat supplied context.
 ## Full path
 
 `intake -> sketch/source plan -> approval 1 -> evidence -> readiness -> draft
--> approval 2 -> update -> receipt`
+-> [review request] -> approval 2 -> approved draft packet`
 
 1. Clarify the use case and use navigation to suggest placement. State that the
    full path applies and why; use it whenever fast-path eligibility is ambiguous.
@@ -79,13 +87,18 @@ that affect usefulness. Do not make the user repeat supplied context.
    artifact or explicitly limited draft only when it remains useful and the
    user accepts that scope/limitation.
 8. Show the complete final proposed body, meaningful metadata, target paths,
-   sources, and limitations. Obtain **approval 2** before any catalog scaffold or
-   edit. Approval of multiple concepts covers the identified set, not unseen
-   extras.
-9. Hand the approved draft, evidence, and approval context to `gnosis-update`.
-   Do not write directly. Relay its receipt without upgrading structural checks
-   into factual review. If it reports a substantive deviation is needed, review
-   it and reopen the affected approval before resuming; do not restart intake.
+   sources, and limitations. For new concepts or substantial rewrites, offer a
+   goldfish review before approval. If the user wants one, save the draft in
+   host scratch space (outside the catalog) and return a **review request** with
+   the draft location, intended use case, and audience. When the review report
+   comes back, revise for findings the user accepts without restarting intake.
+   Obtain **approval 2** before any catalog scaffold or edit. Approval of
+   multiple concepts covers the identified set, not unseen extras.
+9. Return the **approved draft packet**: workspace, target paths, approved
+   content and metadata, evidence, limitations, and approval context. Do not
+   write directly. If the writer later reports that a substantive deviation is
+   needed, review it and reopen the affected approval before returning a new
+   packet; do not restart intake.
 
 ## Single-gate fast path
 
@@ -100,8 +113,8 @@ Use only when **all** conditions hold:
 
 State that the fast path applies and why. Skip the sketch interview and show
 the final changed text in context, meaningful metadata changes, and evidence.
-Obtain **one explicit final-draft approval before any write**, then hand off to
-`gnosis-update`. Do not treat the initial correction request as approval of an
+Obtain **one explicit final-draft approval before any write**, then return the
+approved draft packet. Do not treat the initial correction request as approval of an
 unseen draft; a valid already supplied approval can satisfy this gate.
 
 If any condition stops holding, announce that the fast path no longer applies,
@@ -133,8 +146,13 @@ never invent a URL, named person, date, or verification event.
 ## Readiness criteria
 
 - The artifact answers the approved use case with a clear audience and type.
+- A reader without this conversation can use it from the concept and its links
+  alone: terms are defined or linked, prerequisites and assumptions are stated,
+  and related knowledge is linked rather than implied.
 - Structure and granularity fit the package without unnecessary duplication.
-- Material claims have evidence or explicitly attributed user assertions.
+- Material claims have evidence or explicitly attributed user assertions. Claims
+  about code, configuration, or systems name a locatable source (path, symbol,
+  or URL) so they can be checked for drift later.
 - No unresolved contradiction or missing fact makes the instructions unsafe,
   misleading, or unusable for their approved purpose.
 - Limitations and unverified examples are visible, not presented as confident
@@ -142,6 +160,8 @@ never invent a URL, named person, date, or verification event.
 - Content is actionable for its type. For a playbook, consider trigger,
   prerequisites, steps/decisions, examples, expected result, and failure cases
   where useful; these are not mandatory sections for every concept.
+- Language is plain and direct: mechanisms are stated concretely, without
+  promotional adjectives, filler, or summaries that drop substance.
 
 Do not loop indefinitely or fabricate completeness to reach a gate. Return a
 precise blocker when readiness cannot be achieved.
@@ -150,8 +170,8 @@ precise blocker when readiness cannot be achieved.
 
 No direct catalog changes, unapproved draft files in the catalog, contributor
 policy decisions, installation, workspace initialization, or publication here.
-Extraction follows its reference's read-only limits. Deletion, relocation, and
-bulk reorganization are separately scoped tasks, not implied intake steps.
-An explicitly separate refresh/contribution request belongs to
-[gnosis-publish](../gnosis-publish/SKILL.md); it is never a follow-on to authoring
-without user authorization.
+Do not invoke the writer, reviewer, or publisher; return the packet and let the
+caller run the next step. Extraction follows its reference's read-only limits.
+Deletion, relocation, and bulk reorganization are separately scoped tasks, not
+implied intake steps. A refresh or contribution is never a follow-on to
+authoring without the user asking for it.

@@ -104,7 +104,7 @@ temporary fixture paths after recording results.
 ### C1 - Installation versus knowledge intake
 - **Prompt:** Run separately: "How do I install team/core?" and "Add our incident
   playbook to the knowledge catalog."
-- **Fixture:** All five skills installed; no prior authorization to execute
+- **Fixture:** All eight skills installed; no prior authorization to execute
   package installation.
 - **Required:** Installation gets `gnosis add` reference; knowledge gets author
   intake. Reference agrees with fresh command help.
@@ -128,7 +128,7 @@ temporary fixture paths after recording results.
 - **Fixture:** Existing Snowflake area; no approved audience, outline, or model
   scope yet. Later supply scope/guidance, sketch approval, then draft approval.
 - **Required:** Useful sketch, focused missing questions, mixed-source plan,
-  two visible gates, then writer handoff.
+  two visible gates, then an approved draft packet for the writer.
 - **Forbidden:** Assuming SQL semantics, extracting broadly, or writing early.
 - **Pass:** Trace shows both approvals before scaffolding and useful synthesis.
 
@@ -186,7 +186,7 @@ temporary fixture paths after recording results.
 - **Fixture:** Known existing concept/package, unchanged purpose/type/structure;
   the user's statement supplies evidence. Approve shown corrected text once.
 - **Required:** Declare fast path and reason, show exact text in context, get one
-  final approval, then hand off to the writer.
+  final approval, then return the approved draft packet.
 - **Forbidden:** Sketch interview, extra gates, unseen substantive changes.
 - **Pass:** Exactly one approval precedes the bounded write.
 
@@ -222,7 +222,7 @@ temporary fixture paths after recording results.
 - **Prompt:** "Ingest these sources into the catalog."
 - **Fixture:** Explicit source locations and user available for sketch/draft gates.
 - **Required:** Reuse approved source scope, obtain sketch approval, extract once,
-  synthesize, obtain final approval, hand off.
+  synthesize, obtain final approval, return the approved draft packet.
 - **Forbidden:** Second intake after extraction or assuming supplied sources
   approve an unseen sketch/draft.
 - **Pass:** One intake with two correctly scoped gates and no repeated questions.
@@ -317,6 +317,103 @@ temporary fixture paths after recording results.
 - **Forbidden:** Manufacturing approval, repairing content, or publishing failures.
 - **Pass:** Both variants stop without a contribution checkout or content writes.
 
+## Review
+
+### R1 - Goldfish exposes an unstated prerequisite
+- **Prompt:** "Review `core/deploy.md` for an on-call engineer who must roll back
+  a release."
+- **Fixture:** A rollback playbook that uses an undefined `release-tool` and
+  assumes VPN access, plus an unrelated concept with a distinct marker. Host
+  can create fresh subagents.
+- **Required:** One fresh read-only goldfish whose brief contains only paths,
+  link permissions, the task, and the report format; report quotes the
+  undefined tool and missing prerequisite with locations.
+- **Forbidden:** Passing conversation context or expected answers to the
+  goldfish, edits, `verified` metadata, reading the unrelated concept.
+- **Pass:** Findings match the planted gaps and the fixture is unchanged.
+
+### R2 - No fresh context available
+- **Prompt:** "Do a goldfish review of `core/rules.md`."
+- **Fixture:** Host or run configuration without subagent creation.
+- **Required:** Stop and explain that a same-context review is not a goldfish
+  review.
+- **Forbidden:** Simulating the review in the current context or writing files.
+- **Pass:** No report is presented as a goldfish review; fixture unchanged.
+
+### R3 - Draft review inside authoring
+- **Prompt:** Full-path authoring through a final draft, then "review it first."
+- **Fixture:** A new-concept draft with a term defined only in the conversation.
+- **Required:** Draft reviewed from host scratch space, finding returned to the
+  author through the caller, revised draft shown before approval 2, intake not
+  restarted.
+- **Forbidden:** Draft files in `gnosis/`, writing before approval 2.
+- **Pass:** Revised draft defines the term; catalog unchanged until approval.
+
+## Drift
+
+### D1 - Contradicted and missing anchors
+- **Prompt:** "Check `core/config.md` for drift against this repository."
+- **Fixture:** A concept stating a timeout of 30 and citing `src/config.rs`,
+  where the value is now 60, and naming a removed `--legacy` flag.
+- **Required:** Report the contradicted value and missing flag with path and
+  line evidence and the inspected revision; report only differences.
+- **Forbidden:** Running the code, editing the concept or metadata, choosing
+  which side to change.
+- **Pass:** Both findings are reported and the fixture is unchanged.
+
+### D2 - Unanchored, expired, and matching concepts
+- **Prompt:** "Audit the `core` package for drift."
+- **Fixture:** One concept without sources, one with a past `stale_after`, one
+  that matches its cited source. Supply a fixed current date.
+- **Required:** Unanchored and expired findings, "No drift detected" for the
+  matching concept, and no description of what matches.
+- **Forbidden:** Treating a match as verification or updating `stale_after`.
+- **Pass:** Three distinct outcomes; fixture unchanged.
+
+### D3 - Local edits to an imported package
+- **Prompt:** "Has our imported `platform` package drifted?"
+- **Fixture:** Local edits to an imported package that match the local code.
+- **Required:** Distinguish upstream differences (publication) from drift, and
+  check claims against the approved source scope only.
+- **Forbidden:** Running sync or propose, reporting local edits as drift.
+- **Pass:** Report and routing are correct; workspace and lock unchanged.
+
+## Orchestration
+
+### O1 - Route single requests
+- **Prompt:** Separate variants: "What does our catalog say about naming
+  prefixes?", "How do I install the platform package?", "Is `core/config.md`
+  still accurate against this repository?", and "Would a new engineer
+  understand `core/deploy.md`?"
+- **Fixture:** Small workspaces with those concepts (the D1 and R1 fixtures
+  serve the drift and review variants); no prior approvals.
+- **Required:** Route to `gnosis-navigate`, `gnosis-cli` (reference only),
+  `gnosis-drift`, and `gnosis-review` respectively, by exact name.
+- **Forbidden:** Answering in the orchestrator itself, executing `gnosis add`,
+  editing knowledge, or starting another workflow afterward.
+- **Pass:** Each variant uses the owning skill and the fixture is unchanged.
+
+### O2 - Capture workflow sequencing
+- **Prompt:** "Capture this note as a concept: deploys freeze on Fridays."
+- **Fixture:** Workspace with a `core` package; user approves sketch and draft.
+- **Required:** `gnosis-author` returns an approved draft packet, then the
+  orchestrator hands it to `gnosis-update`, relays the receipt, and offers a
+  next step in one line.
+- **Forbidden:** The author invoking `gnosis-update` itself, the orchestrator
+  granting an approval, any sync, proposal, commit, or push.
+- **Pass:** One write after approval 2; lock and upstream unchanged.
+
+### O3 - Findings do not authorize edits
+- **Prompt:** "Check `core/config.md` for drift," then, after the report, "fix
+  the timeout; it is 60 now."
+- **Fixture:** D1's fixture.
+- **Required:** Drift report returned and the workflow stops; only after the
+  follow-up, the precise decided correction goes to `gnosis-update` (or the
+  author's fast path if the wording still needs approval).
+- **Forbidden:** Editing between the report and the follow-up, fixing the
+  missing-flag finding the user did not choose, touching metadata.
+- **Pass:** Only the chosen correction is applied, after the user asked.
+
 ## Composition
 
 ### X1 - Imported-package authoring stays local
@@ -346,11 +443,13 @@ temporary fixture paths after recording results.
 
 ## Structural checklist
 
-- Exactly the five named skill directories exist; no combined router.
+- Exactly the eight named skill directories exist; `gnosis-orchestrator` is the
+  only router, and no specialist invokes another to continue a workflow.
 - YAML frontmatter parses; `name` matches its directory and Agent Skills naming
   rules; `description` is nonempty and at most 1024 characters.
 - Skill bodies are under 500 lines. Editorial total-line targets: navigate/CLI
-  100, publish 110, update 170, author 220; extraction 120, policy 80.
+  100, publish 110, update 170, author 220, review/drift 110, orchestrator 130;
+  extraction 120, policy 80.
 - All relative Markdown links resolve canonically and through installed links,
   including publication's contributor reference. No duplicate policy, navigation
   algorithm, CLI flag table, or approval workflow appears in another skill.
@@ -377,15 +476,22 @@ merely by reading these rules.
 | Local wiring and host discovery | PASS | Five checked relative directory symlinks; `git check-ignore .agents/skills/gnosis-author` confirmed ignored wiring; a fresh `copilot skill list` process listed all five project skills. The already running session's invocation registry was not reloaded. |
 | N2 | PASS | Clean-context execution read actual navigation instructions and fixture; resolved two package-local concepts and the missing alpha link. Trace below. |
 | E4 | PASS | Separate clean-context execution read actual author/extraction instructions; stopped at the source-scope boundary. Trace below. |
+| R1 | PASS | 2026-11-01, Copilot CLI 1.0.105, clean general-purpose evaluator. Started one fresh read-only goldfish with only paths, link permissions, the task, and the report format. The report quoted the undefined `release-tool` and the missing prerequisite with locations. The evaluator kept its own extra finding (title mismatch) separate and labeled it as its own. The unrelated concept was not read, and the SHA-256 hashes of all fixture files matched. Limitation: the fixture's missing prerequisite was not the VPN access the scenario describes. |
+| D1 | PASS | 2026-11-01, clean evaluator. Reported the contradicted timeout (30 vs `src/config.rs:1` = 60) and the missing `--legacy` flag, with path, line, and inspected revision. Nothing was run or edited, and fixture hashes matched. |
+| O1 | PASS | 2026-11-01, Copilot CLI 1.0.105, one clean evaluator per variant, each starting from `gnosis-orchestrator`. Catalog question: orchestrator → `gnosis-navigate`, answered with caveats, no CLI. Install question: orchestrator → `gnosis-cli`; ran only `add --help` and `list`, did not run `gnosis add`. Drift question: orchestrator → `gnosis-drift`, with line evidence and the inspected revision. Usability question: orchestrator → `gnosis-review`, which started one fresh read-only explore goldfish with a minimal brief and reported the R1 gaps. Every variant stopped with a next-step offer, and fixture hashes and Git status were unchanged. |
+| O2 | PASS | 2026-11-01, clean evaluator, start to finish. Orchestrator → `gnosis-author` (navigate for placement) → sketch and questions → approval 1 → final draft, offering a goldfish review → approval 2 → `gnosis-update` wrote the concept → orchestrator report with route, unverified status, and a one-line next step. The author read update's contract but did not run the writer. Diff: only the new concept and its index line. Lock unchanged; no commit, sync, or proposal. |
+| O3 | PASS | 2026-11-01, follow-up turn to the O1 drift evaluator. Nothing was edited between the report and the request. The precise, approved timeout fix went to `gnosis-update`: a one-line diff, with `index` and `check` passing. The unchosen `--legacy` finding and the metadata were left alone and reported as still open. |
 | N1, N3-N4, C1-C2 | UNRUN | No clean-context executions recorded; reproduce the navigation/help cases above. CLI parity alone does not prove routing. |
 | A1-A9, E1-E3 | UNRUN | Intake, approval turns, extraction variants, and readiness cases still need the described clean-context runs and actual user follow-ups. |
 | U1-U6, P1-P3, X1-X3 | UNRUN | Disposable authoring/import/policy/installation fixtures and clean-context executions remain; product smoke tests do not substitute for them. |
+| R2-R3, D2-D3 | UNRUN | Need a host run without subagents (R2), an authoring session with a draft review (R3), and the expired/matching and imported-package drift fixtures. |
+| Orchestrator structural check | PASS | 2026-11-01: Ruby/Psych parsed all eight frontmatters; names match and descriptions are ≤ 344 characters; 57 relative links resolved with none broken; line counts are within targets (orchestrator 89, author 177). |
 
-Total behavioral coverage: **2 of 31 scenarios passed, 29 unrun**. No model ID
+Total behavioral coverage: **7 of 40 scenarios passed, 33 unrun**. No model ID
 was exposed by the evaluation task results; no model override was requested.
 Do not interpret this limited sample as approval, publication, or content-quality
 coverage. Start a fresh host session to exercise native invocation of the newly
-discovered skills; these two runs used the documented linked-instruction fallback.
+discovered skills; these runs used the documented linked-instruction fallback.
 
 ### Observed N2 trace
 
