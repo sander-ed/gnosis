@@ -212,7 +212,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$RELEASE_TAG" "$RELEASE_REVISION" -m "Gnosis $RELEASE_TAG"
-          git push origin "refs/tags/$RELEASE_TAG"
+          if ! git push origin "refs/tags/$RELEASE_TAG"; then
+            # GITHUB_TOKEN cannot push a tag whose commit changes workflow files.
+            echo "::error::Could not push $RELEASE_TAG. If this release changes .github/workflows, push the tag yourself, then re-run this workflow: git tag -a $RELEASE_TAG $RELEASE_REVISION -m 'Gnosis $RELEASE_TAG' && git push origin $RELEASE_TAG"
+            exit 1
+          fi
 
       - name: Publish the GitHub Release
         run: |

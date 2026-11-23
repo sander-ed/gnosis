@@ -442,6 +442,15 @@ release tag was already created, retries reuse that tagged commit, replace the
 release assets, and never move the tag. Queued runs use the latest `main` to
 avoid publishing stale versions.
 
+GitHub does not let the workflow's token push a tag for a commit that changes
+`.github/workflows/`. For such a release, push the tag yourself, then run the
+workflow manually:
+
+```sh
+git tag -a vVERSION -m "Gnosis vVERSION"
+git push origin vVERSION
+```
+
 The source repository's `HOMEBREW_TAP_DEPLOY_KEY` Actions secret holds a dedicated
 SSH deploy key with write access only to `sander-ed/sander-ed-tap`. Source tags
 use the workflow's `GITHUB_TOKEN`. If the deploy key is rotated, update both the
