@@ -32,19 +32,28 @@ brew install sander-ed/tap/gnosis
 gnosis --help
 ```
 
-The first command adds the public tap; the second builds Gnosis from source.
-Homebrew handles the Rust build toolchain and Git dependency for you.
-Installation uses HTTPS; no GitHub account, token, or SSH key is required.
+The first command adds the public tap; the second installs a prebuilt binary
+(about 1 MB) and Git if needed. No Rust toolchain is downloaded, and no GitHub
+account, token, or SSH key is required. Once the tap is added,
+`brew install gnosis` also works.
 
-For corporate certificate errors or an older Cargo installation taking
-precedence, see the [tap's troubleshooting guide](https://github.com/sander-ed/sander-ed-tap#troubleshooting).
+If an older Cargo installation takes precedence, see the
+[tap's troubleshooting guide](https://github.com/sander-ed/sander-ed-tap#troubleshooting).
 
 To upgrade:
 
 ```sh
 brew update
-brew upgrade sander-ed/tap/gnosis
+brew upgrade gnosis
 ```
+
+### Prebuilt binaries
+
+Each [GitHub Release](https://github.com/sander-ed/gnosis/releases) has
+binaries for macOS (Apple Silicon and Intel), Linux (x86_64 and ARM64, statically
+linked), and Windows (x86_64 and ARM64), plus a `SHA256SUMS` file. Extract
+`gnosis` (or `gnosis.exe`) onto your `PATH`. Gnosis requires
+[Git](https://git-scm.com) 2.38 or later at runtime.
 
 Prefer to build it yourself? See [Build from source](#build-from-source).
 
@@ -411,20 +420,34 @@ Install all eight using the checked local links in the [skills guide](skills/REA
 
 ## Releasing
 
-Bump `[package].version` in `Cargo.toml`, refresh `Cargo.lock` with Cargo, and
-push the changes to `main`. The **Update Homebrew tap** GitHub Actions workflow
-checks each push and skips versions already packaged by the tap. For a new
-version, it tests and builds the release commit, creates an immutable `vVERSION`
-tag, and updates the tap's formula with that tag and exact commit.
+Bump `[package].version` in `Cargo.toml`, run `cargo update -p gnosis` to
+refresh `Cargo.lock`, and push the changes to `main`. That is the whole release.
+
+The **Release** GitHub Actions workflow (`.github/workflows/homebrew.yml`) checks
+each push and skips versions already packaged by the tap. For a new version, it:
+
+1. Tests the release commit on Linux and macOS.
+2. Builds release binaries for six targets: macOS arm64/x86_64, Linux
+   arm64/x86_64 (musl, static), and Windows arm64/x86_64.
+3. Creates an immutable `vVERSION` tag and a GitHub Release with the archives and
+   `SHA256SUMS`.
+4. Renders `packaging/homebrew/gnosis.rb` with the new URLs and checksums, and
+   commits it, together with `packaging/homebrew/README.md`, to the tap.
+
+The formula and tap README are generated from `packaging/homebrew/`. Edit them
+there, not in the tap.
 
 The workflow can also be run manually to retry a failed publication. If the
-release tag was already created, retries reuse and test that tagged commit;
-they never move the tag. Queued runs use the latest `main` to avoid publishing
-stale versions.
+release tag was already created, retries reuse that tagged commit, replace the
+release assets, and never move the tag. Queued runs use the latest `main` to
+avoid publishing stale versions.
 
 The source repository's `HOMEBREW_TAP_DEPLOY_KEY` Actions secret holds a dedicated
 SSH deploy key with write access only to `sander-ed/sander-ed-tap`. Source tags
 use the workflow's `GITHUB_TOKEN`. If the deploy key is rotated, update both the
 tap's deploy key and the source repository's secret.
+
+Gnosis is released under the [MIT License](LICENSE).
+
 `skills/` is canonical; `.agents/skills/` is ignored local wiring. If you previously
 installed the combined `gnosis` skill, replace it with these folders.

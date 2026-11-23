@@ -1,4 +1,9 @@
-name: Update Homebrew tap
+name: Release
+
+# Bump [package].version in Cargo.toml and push to main. This workflow then
+# tests the commit, builds binaries for every platform, publishes a GitHub
+# Release, and points the Homebrew tap at the new binaries. Pushes that do not
+# change the version are skipped.
 
 on:
   push:
@@ -6,17 +11,23 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: homebrew-release
   cancel-in-progress: false
 
 jobs:
-  update-tap:
+  prepare:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    outputs:
+      changed: ${{ steps.release.outputs.changed }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      revision: ${{ steps.release.outputs.revision }}
+      create_tag: ${{ steps.release.outputs.create_tag }}
     steps:
       - name: Check out the latest main branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -31,11 +42,20 @@ jobs:
           repository: sander-ed/sander-ed-tap
           ref: main
           path: homebrew-tap
-          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          persist-credentials: false
 
-      - name: Prepare the formula when the Cargo version changes
+      - name: Read the packaged version from the tap
+        id: tap
+        run: |
+          # Matches both `version "X"` and the older source-build `tag: "vX"`.
+          packaged=$(sed -nE 's/^ *(version|tag:) +"v?([^"]+)".*/\2/p' homebrew-tap/Formula/gnosis.rb | head -n1)
+          echo "packaged=$packaged" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether to release
         id: release
         shell: python
+        env:
+          PACKAGED: ${{ steps.tap.outputs.packaged }}
         run: |
           import os
           import re
@@ -50,16 +70,8 @@ jobs:
           if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", version):
               raise ValueError(f"Invalid release version: {version!r}")
           tag = f"v{version}"
-          formula = Path("homebrew-tap/Formula/gnosis.rb")
-          text = formula.read_text()
-          tag_pattern = r'(?m)^(\s*tag:\s+)"([^"]+)"'
-          revision_pattern = r'(?m)^(\s*revision:\s+)"([0-9a-f]{40})"'
-          tags = re.findall(tag_pattern, text)
-          revisions = re.findall(revision_pattern, text)
-          if len(tags) != 1 or len(revisions) != 1:
-              raise ValueError("Expected exactly one tag and revision in Formula/gnosis.rb")
 
-          if tags[0][1] == tag:
+          if os.environ["PACKAGED"] == version:
               print(f"The tap already packages {tag}; nothing to publish.")
               outputs = {"changed": "false"}
           else:
@@ -69,11 +81,9 @@ jobs:
               tagged_version = tomllib.loads(git("show", f"{revision}:Cargo.toml"))["package"]["version"]
               if tagged_version != version:
                   raise ValueError(f"{tag} contains Cargo version {tagged_version}, not {version}")
-              text = re.sub(tag_pattern, lambda m: f'{m[1]}"{tag}"', text)
-              text = re.sub(revision_pattern, lambda m: f'{m[1]}"{revision}"', text)
-              formula.write_text(text)
               outputs = {
                   "changed": "true",
+                  "version": version,
                   "tag": tag,
                   "revision": revision,
                   "create_tag": str(not existing_tag).lower(),
@@ -84,35 +94,170 @@ jobs:
               for key, value in outputs.items():
                   print(f"{key}={value}", file=output)
 
+  test:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.revision }}
       - name: Test the exact release commit
-        if: steps.release.outputs.changed == 'true'
-        env:
-          RELEASE_REVISION: ${{ steps.release.outputs.revision }}
         run: |
-          git checkout --detach "$RELEASE_REVISION"
-          rustup update stable --no-self-update
+          rustup toolchain install stable --profile minimal --no-self-update
           cargo +stable test --locked
-          cargo +stable build --release --locked
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-apple-darwin, os: macos-15-intel }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-24.04 }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          - { target: aarch64-pc-windows-msvc, os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      TARGET: ${{ matrix.target }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.revision }}
+
+      - name: Install musl tools
+        if: contains(matrix.target, 'linux-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build
+        run: |
+          rustup toolchain install stable --profile minimal --target "$TARGET" --no-self-update
+          cargo +stable build --release --locked --target "$TARGET"
+
+      - name: Smoke test and package
+        run: |
+          name="gnosis-$VERSION-$TARGET"
+          mkdir -p dist
+          if [[ "$TARGET" == *windows* ]]; then
+            binary="target/$TARGET/release/gnosis.exe"
+          else
+            binary="target/$TARGET/release/gnosis"
+          fi
+          test "$("$binary" --version | tr -d '\r')" = "gnosis $VERSION"
+          ls -l "$binary"
+          staging=$(mktemp -d)
+          cp "$binary" LICENSE README.md "$staging/"
+          if [[ "$TARGET" == *windows* ]]; then
+            pwsh -NoProfile -Command "Compress-Archive -Path '$(cygpath -w "$staging")\\*' -DestinationPath 'dist/$name.zip'"
+          else
+            tar -czf "dist/$name.tar.gz" -C "$staging" .
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, test, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_REVISION: ${{ needs.prepare.outputs.revision }}
+    steps:
+      # The formula template and tag both come from the exact release commit.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.revision }}
+
+      - name: Check out the tap
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: sander-ed/sander-ed-tap
+          ref: main
+          path: homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Compute checksums
+        working-directory: dist
+        run: |
+          sha256sum gnosis-* > SHA256SUMS
+          cat SHA256SUMS
 
       - name: Publish the immutable release tag
-        if: steps.release.outputs.create_tag == 'true'
-        env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_REVISION: ${{ steps.release.outputs.revision }}
+        if: needs.prepare.outputs.create_tag == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$RELEASE_TAG" "$RELEASE_REVISION" -m "Gnosis $RELEASE_TAG"
           git push origin "refs/tags/$RELEASE_TAG"
 
+      - name: Publish the GitHub Release
+        run: |
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            # Retry of a partly failed run: refresh the assets.
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/* --verify-tag \
+              --title "Gnosis $RELEASE_TAG" --generate-notes
+          fi
+
+      - name: Render the formula
+        shell: python
+        run: |
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          sums = {}
+          for line in Path("dist/SHA256SUMS").read_text().splitlines():
+              digest, name = line.split()
+              sums[name] = digest
+
+          text = Path("packaging/homebrew/gnosis.rb").read_text()
+          text = text.replace("@@VERSION@@", version)
+          def checksum(match):
+              return sums[f"gnosis-{version}-{match[1]}.tar.gz"]
+          text = re.sub(r"@@SHA256_([A-Za-z0-9_-]+)@@", checksum, text)
+          if "@@" in text:
+              raise ValueError("Unfilled placeholder in the formula")
+          Path("homebrew-tap/Formula/gnosis.rb").write_text(text)
+          Path("homebrew-tap/README.md").write_text(Path("packaging/homebrew/README.md").read_text())
+          print(text)
+
       - name: Publish the formula
-        if: steps.release.outputs.changed == 'true'
         working-directory: homebrew-tap
-        env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/gnosis.rb
-          git commit -m "Update gnosis to $RELEASE_TAG"
-          git push origin HEAD:main
+          git add Formula/gnosis.rb README.md
+          if git diff --cached --quiet; then
+            echo "The tap already has this formula."
+          else
+            git commit -m "Update gnosis to $RELEASE_TAG"
+            git push origin HEAD:main
+          fi
