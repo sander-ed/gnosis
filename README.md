@@ -426,7 +426,7 @@ refresh `Cargo.lock`, and push the changes to `main`. That is the whole release.
 The **Release** GitHub Actions workflow (`.github/workflows/homebrew.yml`) checks
 each push and skips versions already packaged by the tap. For a new version, it:
 
-1. Tests the release commit on Linux and macOS.
+1. Tests the release commit on Linux.
 2. Builds release binaries for six targets: macOS arm64/x86_64, Linux
    arm64/x86_64 (musl, static), and Windows arm64/x86_64.
 3. Creates an immutable `vVERSION` tag and a GitHub Release with the archives and
