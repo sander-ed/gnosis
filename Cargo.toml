@@ -10,7 +10,7 @@ repository = "https://github.com/sander-ed/gnosis"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-crossterm = { version = "0.29.0", default-features = false, features = ["events"] }
+crossterm = { version = "0.29.0", default-features = false, features = ["events", "windows"] }
 fs2 = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
