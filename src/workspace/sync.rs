@@ -146,12 +146,13 @@ impl Workspace {
 
     fn synchronize(
         &self,
-        manifest: Manifest,
+        mut manifest: Manifest,
         update: Update,
         merge: bool,
         store: &mut Store,
     ) -> Result<()> {
         metadata::validate_manifest(&manifest)?;
+        let manifest_sources_before: BTreeSet<_> = manifest.sources.keys().cloned().collect();
         let manifest_before = Entry::read(&self.root.join("gnosis.toml"))?;
         let lock_before = Entry::read(&self.root.join("gnosis.lock"))?;
         let old = self.lock()?;
@@ -168,7 +169,7 @@ impl Workspace {
         {
             old.clone()
         } else {
-            resolve(&manifest, &old, update, store)?
+            resolve(&mut manifest, &old, update, &self.identities()?, store)?
         };
         let mut discarded = Vec::new();
         let mut conflicts = Vec::new();
@@ -267,6 +268,14 @@ impl Workspace {
                 after: Entry::File(metadata::encode(&manifest)?),
             },
         ])?;
+        for (alias, source) in &manifest.sources {
+            if !manifest_sources_before.contains(alias) {
+                println!(
+                    "Configured source {alias} for {}, which owns a needed package",
+                    source.repository
+                );
+            }
+        }
         if !discarded.is_empty() {
             println!(
                 "Replaced local edits with upstream (restore them from Git and rerun with --merge to keep them):"

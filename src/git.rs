@@ -120,6 +120,12 @@ impl Store {
     }
 
     pub fn snapshot(&mut self, url: &str, commit: &str, directory: &str) -> Result<Tree> {
+        let repository = self.fetch(url, commit)?;
+        tree_at(&repository, commit, directory)
+    }
+
+    /// Clone `url` if needed and make sure `commit` is available locally.
+    pub fn fetch(&mut self, url: &str, commit: &str) -> Result<PathBuf> {
         ensure!(
             matches!(commit.len(), 40 | 64) && commit.bytes().all(|c| c.is_ascii_hexdigit()),
             "invalid locked Git commit {commit:?}"
@@ -139,7 +145,7 @@ impl Store {
                 false,
             )?;
         }
-        tree_at(&repository, commit, directory)
+        Ok(repository)
     }
 }
 
@@ -153,12 +159,12 @@ pub fn file_at(repository: &Path, revision: &str, path: &str) -> Result<Option<V
     let fields: Vec<_> = metadata.split(' ').collect();
     ensure!(
         fields.len() == 3 && fields[0] == "100644" && fields[1] == "blob",
-        "policy must be a regular file: {path}"
+        "{path} must be a regular file"
     );
     let size = run(repository, &["cat-file", "-s", fields[2]], true)?;
     ensure!(
         std::str::from_utf8(&size)?.trim().parse::<usize>()? <= MAX_FILE,
-        "policy exceeds 16 MiB"
+        "{path} exceeds 16 MiB"
     );
     Ok(Some(run(
         repository,

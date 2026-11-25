@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 use fs2::FileExt;
 
+use crate::git;
 use crate::metadata::{self, Lock, Manifest};
 use crate::tree::Tree;
 use transaction::Entry;
@@ -98,6 +99,10 @@ impl Workspace {
             ..Lock::default()
         });
         ensure!(lock.format == 1, "unsupported lock format");
+        let local = self
+            .read_metadata::<Manifest>("gnosis.toml")?
+            .map(|manifest| manifest.packages)
+            .unwrap_or_default();
         for (name, package) in &lock.packages {
             metadata::name(name)?;
             metadata::name(&package.source)?;
@@ -114,7 +119,7 @@ impl Workspace {
             for dependency in &package.dependencies {
                 metadata::name(dependency)?;
                 ensure!(
-                    lock.packages.contains_key(dependency),
+                    lock.packages.contains_key(dependency) || local.contains(dependency),
                     "lock is missing dependency {dependency} of {name}"
                 );
             }
@@ -132,6 +137,30 @@ impl Workspace {
             "lock contains packages outside the requested dependency graph"
         );
         Ok(lock)
+    }
+
+    /// Repository identities that refer to this workspace: its directory, the
+    /// enclosing Git work tree, and that repository's remote URLs.
+    fn identities(&self) -> Result<BTreeSet<String>> {
+        let mut identities =
+            BTreeSet::from([metadata::repository_identity(git::path(&self.root)?)]);
+        if let Ok(top) = git::run(&self.root, &["rev-parse", "--show-toplevel"], true) {
+            identities.insert(metadata::repository_identity(
+                String::from_utf8_lossy(&top).trim(),
+            ));
+        }
+        if let Ok(remotes) = git::run(
+            &self.root,
+            &["config", "--get-regexp", r"^remote\..*\.url$"],
+            true,
+        ) {
+            for line in String::from_utf8_lossy(&remotes).lines() {
+                if let Some((_, url)) = line.split_once(' ') {
+                    identities.insert(metadata::repository_identity(url));
+                }
+            }
+        }
+        Ok(identities)
     }
 
     fn knowledge(&self) -> Result<Tree> {

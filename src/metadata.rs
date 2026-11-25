@@ -61,12 +61,16 @@ pub struct Lock {
 }
 
 impl Lock {
+    /// Locked packages reachable from the requirements. Dependencies satisfied by
+    /// local packages are not locked, so they are not included.
     pub fn reachable(&self) -> BTreeSet<String> {
         let mut reachable = BTreeSet::new();
         let mut pending: Vec<_> = self.requirements.keys().cloned().collect();
         while let Some(name) = pending.pop() {
-            if reachable.insert(name.clone()) {
-                pending.extend(self.packages[&name].dependencies.iter().cloned());
+            if let Some(package) = self.packages.get(&name)
+                && reachable.insert(name)
+            {
+                pending.extend(package.dependencies.iter().cloned());
             }
         }
         reachable
@@ -122,6 +126,33 @@ pub fn validate_source(source: &Source) -> Result<()> {
     Ok(())
 }
 
+/// A comparable form of a repository location, so that SSH, HTTPS, and `.git`
+/// spellings of one repository match: `git@github.com:org/repo.git` and
+/// `https://github.com/org/repo` both become `github.com/org/repo`.
+pub fn repository_identity(repository: &str) -> String {
+    let value = repository.trim();
+    let value = match value.split_once("://") {
+        Some(("file", path)) => path.to_owned(),
+        Some((_, rest)) => {
+            let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+            let host = authority.rsplit('@').next().unwrap_or(authority);
+            let host = host.split(':').next().unwrap_or(host);
+            format!("{host}/{path}")
+        }
+        None => match value.split_once(':') {
+            // scp-like user@host:path, but not a Windows drive such as C:\path.
+            Some((authority, path)) if authority.len() > 1 && !authority.contains(['/', '\\']) => {
+                let host = authority.rsplit('@').next().unwrap_or(authority);
+                format!("{host}/{}", path.trim_start_matches('/'))
+            }
+            _ => value.to_owned(),
+        },
+    };
+    let value = value.trim_end_matches('/');
+    let value = value.strip_suffix(".git").unwrap_or(value);
+    value.trim_end_matches('/').to_lowercase()
+}
+
 pub fn validate_manifest(manifest: &Manifest) -> Result<()> {
     ensure!(
         manifest.format == 1,
@@ -168,4 +199,27 @@ pub fn package(tree: &Tree, expected: &str) -> Result<Package> {
         name(dependency)?;
     }
     Ok(manifest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repository_identity;
+
+    #[test]
+    fn repository_spellings_share_an_identity() {
+        for spelling in [
+            "git@github.com:My-Org/repo.git",
+            "https://github.com/my-org/repo",
+            "https://token@github.com/my-org/repo.git/",
+            "ssh://git@github.com:22/my-org/repo.git",
+        ] {
+            assert_eq!(repository_identity(spelling), "github.com/my-org/repo");
+        }
+        assert_eq!(repository_identity("/srv/repo/"), "/srv/repo");
+        assert_eq!(repository_identity("file:///srv/repo.git"), "/srv/repo");
+        assert_ne!(
+            repository_identity("https://github.com/my-org/repo"),
+            repository_identity("https://github.com/other/repo")
+        );
+    }
 }

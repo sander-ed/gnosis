@@ -240,9 +240,16 @@ source changes, such as switching a source `--ref` from a feature branch to
 
 Package dependencies are names in `package.toml`. They describe required
 knowledge, without version compatibility constraints. Cycles are supported.
-If several sources publish a dependency, select one explicitly with
-`gnosis add NAME --source SOURCE`. Sources declared inside downloaded manifests
-are not followed automatically.
+A package is always installed from its owner, the repository that lists it
+under `packages`. Gnosis finds the owner by following the published
+`gnosis.toml` and `gnosis.lock` of the repositories that import the package. If
+`repo-2` publishes a package that depends on `core` imported from `repo-1`,
+installing it installs `core` from `repo-1`. Gnosis adds a source for `repo-1`
+if needed and reports it. You need read access to the owner. A requirement added
+through an importer, such as `gnosis add repo-2/core`, is moved to the owner. A
+dependency this workspace owns is satisfied by its local package. Resolution
+fails if two owners publish one package name, or if a local package shares a
+name with an imported one from another owner.
 
 The pinned source is authoritative. When a package's upstream content changes,
 sync replaces the installed package with the new upstream version, discarding

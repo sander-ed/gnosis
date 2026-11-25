@@ -109,7 +109,7 @@ pub(super) fn published(
 
 /// Derive a source alias from a repository's last path segment, such as
 /// `knowledge` for `git@github.com:my-org/knowledge.git`.
-fn derive_alias(repository: &str) -> Result<String> {
+pub(super) fn derive_alias(repository: &str) -> Result<String> {
     let base = repository
         .trim_end_matches(['/', '\\'])
         .rsplit(['/', '\\', ':'])

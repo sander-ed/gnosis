@@ -412,7 +412,7 @@ fn conflicted_frontmatter_is_written_without_validation() {
 }
 
 #[test]
-fn multiple_sources_require_explicit_choice_for_ambiguous_dependencies() {
+fn dependencies_resolve_to_their_owner_not_another_publisher() {
     let fixture = Fixture::new();
     let second = fixture.other("public");
     git(&second, &["init", "--quiet", "--initial-branch=main"]);
@@ -430,18 +430,174 @@ fn multiple_sources_require_explicit_choice_for_ambiguous_dependencies() {
             "main",
         ],
     );
+    cli(&fixture.consumer, &["add", "core", "--source", "public"]);
     let before = snapshot(&fixture.consumer);
     fails(
         &fixture.consumer,
         &["add", "platform", "--source", "team"],
-        "ambiguous dependency core",
+        "platform depends on core from its owner",
     );
     assert_eq!(before, snapshot(&fixture.consumer));
-    cli(&fixture.consumer, &["add", "core", "--source", "public"]);
+    cli(&fixture.consumer, &["remove", "core"]);
     fixture.install();
-    assert!(read(&fixture.consumer, "gnosis/core/facts.md").contains("Public core"));
+    assert!(read(&fixture.consumer, "gnosis/core/facts.md").contains("Original core"));
+    assert!(read(&fixture.consumer, "gnosis.lock").contains("source = \"team\""));
+}
+
+#[test]
+fn imported_dependencies_resolve_through_importers_to_their_owner() {
+    let fixture = Fixture::new();
+    let source = fixture.source.to_str().unwrap();
+    // service-repo imports core from its owner and publishes service, which needs it.
+    let service = fixture.other("service-repo");
+    git(&service, &["init", "--quiet", "--initial-branch=main"]);
+    cli(&service, &["init"]);
+    cli(&service, &["source", "team", source, "--ref", "main"]);
+    cli(&service, &["add", "core"]);
+    cli(&service, &["package", "service", "--owner", "@service"]);
+    write(
+        &service,
+        "gnosis/service/package.toml",
+        "name = 'service'\nowner = '@service'\ndependencies = ['core']\n",
+    );
+    cli(&service, &["index"]);
+    commit(&service);
+    let app = fixture.other("app-repo");
+    git(&app, &["init", "--quiet", "--initial-branch=main"]);
+    cli(&app, &["init"]);
+    cli(&app, &["source", "services", service.to_str().unwrap()]);
+
+    // Without access to the owner, nothing can be installed.
+    let moved = fixture.temporary.path().join("moved");
+    fs::rename(&fixture.source, &moved).unwrap();
+    let before = snapshot(&app);
+    fails(
+        &app,
+        &["add", "service"],
+        "cannot resolve core, which service depends on",
+    );
+    assert_eq!(before, snapshot(&app));
+    fs::rename(&moved, &fixture.source).unwrap();
+
+    let output = cli(&app, &["add", "service"]);
+    assert!(output.contains("Configured source team"), "{output}");
+    let lock = read(&app, "gnosis.lock");
+    assert!(
+        lock.contains("[packages.core]\nsource = \"team\""),
+        "{lock}"
+    );
+    // Requesting core through its importer still installs it from its owner.
+    cli(&app, &["add", "core", "--source", "services"]);
+    assert!(read(&app, "gnosis.toml").contains("core = \"team\""));
+
+    // Updates follow the owner even though the importer still pins the old commit.
+    write(
+        &fixture.source,
+        "gnosis/core/facts.md",
+        concept("Owner update."),
+    );
+    cli(&fixture.source, &["index"]);
+    commit(&fixture.source);
+    cli(&app, &["sync", "--update"]);
+    assert!(read(&app, "gnosis/core/facts.md").contains("Owner update."));
+
+    // A third repository reaches core's owner through two importers.
+    cli(&app, &["package", "dashboard", "--owner", "@app"]);
+    write(
+        &app,
+        "gnosis/dashboard/package.toml",
+        "name = 'dashboard'\nowner = '@app'\ndependencies = ['core']\n",
+    );
+    cli(&app, &["index"]);
+    commit(&app);
+    let consumer = fixture.other("dashboard-consumer");
+    git(&consumer, &["init", "--quiet", "--initial-branch=main"]);
+    cli(&consumer, &["init"]);
+    cli(&consumer, &["source", "apps", app.to_str().unwrap()]);
+    cli(&consumer, &["add", "dashboard"]);
+    let lock = read(&consumer, "gnosis.lock");
+    assert!(
+        lock.contains("[packages.core]\nsource = \"team\""),
+        "{lock}"
+    );
+    cli(&consumer, &["check"]);
+}
+
+#[test]
+fn dependencies_owned_by_the_workspace_are_satisfied_locally() {
+    let fixture = Fixture::new();
+    // The consumer authors shared; a second repository imports it and builds on it.
+    cli(
+        &fixture.consumer,
+        &["package", "shared", "--owner", "@consumer"],
+    );
+    write(
+        &fixture.consumer,
+        "gnosis/shared/facts.md",
+        concept("Shared."),
+    );
+    cli(&fixture.consumer, &["index"]);
+    commit(&fixture.consumer);
+    let downstream = fixture.other("downstream");
+    git(&downstream, &["init", "--quiet", "--initial-branch=main"]);
+    cli(&downstream, &["init"]);
+    cli(
+        &downstream,
+        &["source", "upstream", fixture.consumer.to_str().unwrap()],
+    );
+    cli(&downstream, &["add", "shared"]);
+    cli(
+        &downstream,
+        &["package", "derived", "--owner", "@downstream"],
+    );
+    write(
+        &downstream,
+        "gnosis/derived/package.toml",
+        "name = 'derived'\nowner = '@downstream'\ndependencies = ['shared']\n",
+    );
+    cli(&downstream, &["index"]);
+    commit(&downstream);
+
+    cli(
+        &fixture.consumer,
+        &["source", "downstream", downstream.to_str().unwrap()],
+    );
+    cli(&fixture.consumer, &["add", "derived"]);
+    let lock = read(&fixture.consumer, "gnosis.lock");
+    assert!(!lock.contains("[packages.shared]"), "{lock}");
+    cli(&fixture.consumer, &["check"]);
+
+    // Remote URLs identify the workspace too.
+    let url = "https://example.test/org/consumer.git";
+    git(&fixture.consumer, &["remote", "add", "origin", url]);
+    for name in ["gnosis.toml", "gnosis.lock"] {
+        let content = read(&downstream, name).replace(fixture.consumer.to_str().unwrap(), url);
+        write(&downstream, name, content);
+    }
+    commit(&downstream);
     cli(&fixture.consumer, &["sync", "--update"]);
-    assert!(read(&fixture.consumer, "gnosis/core/facts.md").contains("Public core"));
+    cli(&fixture.consumer, &["check"]);
+
+    // A same-named local package that is not the owner's is a collision.
+    let other = fixture.other("other");
+    git(&other, &["init", "--quiet", "--initial-branch=main"]);
+    cli(&other, &["init"]);
+    cli(&other, &["package", "core", "--owner", "@other"]);
+    cli(
+        &other,
+        &[
+            "source",
+            "team",
+            fixture.source.to_str().unwrap(),
+            "--ref",
+            "main",
+        ],
+    );
+    fails(
+        &other,
+        &["add", "platform"],
+        "platform depends on core, which",
+    );
 }
 
 #[test]
@@ -459,7 +615,7 @@ fn only_explicitly_published_packages_are_discovered() {
     fails(
         &fixture.consumer,
         &["add", "unpublished", "--source", "team"],
-        "no configured source publishes",
+        "neither authors nor imports unpublished",
     );
     assert_eq!(before, snapshot(&fixture.consumer));
 }
