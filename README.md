@@ -120,6 +120,23 @@ use `gnosis add platform`: it retains an existing source selection or infers the
 only configured repository publishing that package. If several sources match,
 choose one with `team/platform` or `platform --source team`.
 
+To pick packages interactively, run `gnosis add` without a name, or pass a
+repository URL or path (starting with `./`, `../`, or `/`):
+
+```sh
+gnosis add                                        # every configured source
+gnosis add git@github.com:my-org/knowledge.git    # one repository
+```
+
+Each source has its own tab: switch with ←/→, move with ↑/↓, toggle with space,
+and toggle every package in the tab with `a`. Enter installs the selection;
+selected packages that are already installed are updated, with their
+dependencies, to the latest commit of their source, replacing local edits as
+`gnosis sync --update` does. An unregistered repository is added as a source at
+`HEAD`, named after the repository (`knowledge`) unless you pass
+`--source ALIAS`. Nothing changes if you cancel with Esc. The selector requires
+an interactive terminal.
+
 Commit the manifest, lock, and installed knowledge:
 
 ```text
@@ -310,7 +327,7 @@ policy yet. Local checks do not prevent direct edits or replace GitHub permissio
 | `new` | Create a document or navigation folder |
 | `source` | Configure a Git source |
 | `list` | List packages published by configured sources |
-| `add` | Install a package and its dependencies |
+| `add` | Install a package and its dependencies, or choose packages to install or update |
 | `remove` | Remove a package requirement and unused imported dependencies |
 | `sync` | Restore imports, or update them with `--update`; `--merge` keeps local edits |
 | `check` | Validate basic OKF and package structure |

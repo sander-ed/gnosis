@@ -2,14 +2,23 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result, bail, ensure};
 
-use super::dependencies::{catalog, prune, resolve, snapshot};
+use super::dependencies::{Update, catalog, prune, resolve, snapshot};
 use super::inspection::validate_workspace;
+use super::sources::published;
 use super::transaction::{Change, Entry};
 use super::{Workspace, package_names};
 use crate::git::Store;
 use crate::metadata::Manifest;
 use crate::tree::Tree;
 use crate::{git, metadata, navigation, tree};
+
+/// A package a configured source publishes, as offered by `Workspace::add_selected`.
+pub struct Available {
+    pub source: String,
+    pub name: String,
+    pub description: String,
+    pub installed: bool,
+}
 
 impl Workspace {
     pub fn add(&self, name: &str, source: Option<&str>) -> Result<()> {
@@ -60,17 +69,85 @@ impl Workspace {
             "unknown source {source}; register a Git repository with gnosis source {source} REPOSITORY"
         );
         manifest.dependencies.insert(name.into(), source);
-        self.synchronize(manifest, false, false, &mut store)
+        self.synchronize(manifest, Update::None, false, &mut store)
+    }
+
+    /// Offer published packages to `choose`, then install the chosen ones and update
+    /// those already installed. With `repository`, offers only that repository's
+    /// packages, registering it under `alias` (or a name derived from its URL) unless
+    /// a configured source already points to it. Nothing is written unless packages
+    /// are chosen.
+    pub fn add_selected(
+        &self,
+        repository: Option<(String, Option<String>)>,
+        choose: impl FnOnce(&[Available]) -> Result<Option<Vec<usize>>>,
+    ) -> Result<()> {
+        let mut manifest = self.manifest()?;
+        let registered = match repository {
+            Some((repository, alias)) => Some(self.register(&mut manifest, repository, alias)?),
+            None => None,
+        };
+        ensure!(
+            !manifest.sources.is_empty(),
+            "no source repositories configured; run gnosis add REPOSITORY or register one with gnosis source ALIAS REPOSITORY"
+        );
+        let lock = self.lock()?;
+        let mut store = Store::new()?;
+        let available: Vec<_> = published(&manifest, &mut store)?
+            .into_iter()
+            .filter(|(source, name, _)| {
+                registered.as_ref().is_none_or(|(alias, _)| alias == source)
+                    && !manifest.packages.contains(name)
+            })
+            .map(|(source, name, package)| Available {
+                installed: lock
+                    .packages
+                    .get(&name)
+                    .is_some_and(|locked| locked.source == source),
+                source,
+                name,
+                description: package.description,
+            })
+            .collect();
+        ensure!(!available.is_empty(), "no installable packages published");
+        let Some(chosen) = choose(&available)? else {
+            println!("Cancelled; nothing changed");
+            return Ok(());
+        };
+        if chosen.is_empty() {
+            println!("No packages selected; nothing changed");
+            return Ok(());
+        }
+        let mut sources = BTreeMap::new();
+        for package in chosen.iter().map(|&index| &available[index]) {
+            if let Some(other) = sources.insert(&package.name, &package.source) {
+                bail!(
+                    "selected {0} from both {other} and {1}; choose one source for {0}",
+                    package.name,
+                    package.source
+                );
+            }
+            manifest
+                .dependencies
+                .insert(package.name.clone(), package.source.clone());
+        }
+        let update = Update::Packages(sources.into_keys().cloned().collect());
+        self.synchronize(manifest, update, false, &mut store)?;
+        if let Some((alias, true)) = registered {
+            println!("Configured source {alias}");
+        }
+        Ok(())
     }
 
     pub fn sync(&self, update: bool, merge: bool) -> Result<()> {
+        let update = if update { Update::All } else { Update::None };
         self.synchronize(self.manifest()?, update, merge, &mut Store::new()?)
     }
 
     fn synchronize(
         &self,
         manifest: Manifest,
-        update: bool,
+        update: Update,
         merge: bool,
         store: &mut Store,
     ) -> Result<()> {
@@ -85,7 +162,7 @@ impl Workspace {
             _ => bail!("gnosis must be a directory"),
         };
         let mut tree = original.clone();
-        let locked = if !update
+        let locked = if matches!(update, Update::None)
             && old.requirements == manifest.dependencies
             && old.sources == manifest.sources
         {
@@ -211,5 +288,140 @@ impl Workspace {
             locked.packages.len()
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::Path;
+    use std::process::Command;
+
+    use super::*;
+
+    fn git(root: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args([
+                "-c",
+                "user.name=Owner",
+                "-c",
+                "user.email=owner@example.test",
+            ])
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+            ])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    fn publish(root: &Path, fact: &str) -> String {
+        fs::write(
+            root.join("gnosis/core/facts.md"),
+            format!("---\ntype: Reference\n---\n# Facts\n\n{fact}\n"),
+        )
+        .unwrap();
+        Workspace::open(root).unwrap().index().unwrap();
+        git(root, &["add", "--all"]);
+        git(root, &["commit", "--quiet", "-m", "Publish"]);
+        git(root, &["rev-parse", "HEAD"])
+    }
+
+    fn locked_commit(root: &Path, name: &str) -> String {
+        Workspace::open(root).unwrap().lock().unwrap().packages[name]
+            .commit
+            .clone()
+    }
+
+    #[test]
+    fn selected_packages_install_and_update_with_their_dependencies() {
+        let temporary = tempfile::tempdir().unwrap();
+        let source = temporary.path().join("team-knowledge");
+        let consumer = temporary.path().join("consumer");
+        fs::create_dir(&source).unwrap();
+        fs::create_dir(&consumer).unwrap();
+        git(&source, &["init", "--quiet"]);
+        {
+            let workspace = Workspace::open(&source).unwrap();
+            workspace.init().unwrap();
+            workspace
+                .package("core", "@org/core".into(), "Core".into())
+                .unwrap();
+            workspace
+                .package("platform", "@org/platform".into(), String::new())
+                .unwrap();
+        }
+        fs::write(
+            source.join("gnosis/platform/package.toml"),
+            "name = 'platform'\nowner = '@org/platform'\ndependencies = ['core']\n",
+        )
+        .unwrap();
+        let first = publish(&source, "Original.");
+        Workspace::open(&consumer).unwrap().init().unwrap();
+        let repository = source.to_str().unwrap().to_owned();
+
+        Workspace::open(&consumer)
+            .unwrap()
+            .add_selected(Some((repository.clone(), None)), |available| {
+                let offered: Vec<_> = available
+                    .iter()
+                    .map(|p| (p.source.as_str(), p.name.as_str(), p.installed))
+                    .collect();
+                assert_eq!(
+                    offered,
+                    [
+                        ("team-knowledge", "core", false),
+                        ("team-knowledge", "platform", false)
+                    ]
+                );
+                Ok(Some(vec![1]))
+            })
+            .unwrap();
+        let manifest = Workspace::open(&consumer).unwrap().manifest().unwrap();
+        assert_eq!(manifest.sources["team-knowledge"].reference, "HEAD");
+        assert_eq!(manifest.dependencies["platform"], "team-knowledge");
+        assert_eq!(locked_commit(&consumer, "core"), first);
+
+        // Cancelling writes nothing, even for a repository that is not yet registered.
+        let before = fs::read(consumer.join("gnosis.toml")).unwrap();
+        let other = temporary.path().join("other");
+        fs::create_dir(&other).unwrap();
+        git(&other, &["init", "--quiet"]);
+        Workspace::open(&other).unwrap().init().unwrap();
+        Workspace::open(&other)
+            .unwrap()
+            .package("docs", "@org/docs".into(), String::new())
+            .unwrap();
+        git(&other, &["add", "--all"]);
+        git(&other, &["commit", "--quiet", "-m", "Publish"]);
+        Workspace::open(&consumer)
+            .unwrap()
+            .add_selected(Some((other.to_str().unwrap().into(), None)), |_| Ok(None))
+            .unwrap();
+        assert_eq!(fs::read(consumer.join("gnosis.toml")).unwrap(), before);
+
+        // Selecting an installed package updates it and its dependencies.
+        let second = publish(&source, "Updated.");
+        Workspace::open(&consumer)
+            .unwrap()
+            .add_selected(None, |available| {
+                assert!(available.iter().all(|p| p.installed));
+                Ok(Some(vec![1]))
+            })
+            .unwrap();
+        assert_eq!(locked_commit(&consumer, "platform"), second);
+        assert_eq!(locked_commit(&consumer, "core"), second);
+        assert!(
+            fs::read_to_string(consumer.join("gnosis/core/facts.md"))
+                .unwrap()
+                .contains("Updated.")
+        );
     }
 }

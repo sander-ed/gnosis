@@ -2,6 +2,7 @@ mod add;
 mod check;
 mod new;
 mod propose;
+mod select;
 
 use std::path::PathBuf;
 

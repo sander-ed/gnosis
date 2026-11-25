@@ -9,6 +9,7 @@ mod sync;
 mod transaction;
 
 pub use authoring::NewEntry;
+pub use sync::Available;
 
 use std::collections::BTreeSet;
 use std::fs::{self, File};

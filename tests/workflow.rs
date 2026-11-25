@@ -1550,7 +1550,12 @@ fn add_rejects_conflicting_sources_and_invalid_names_without_changes() {
             "conflicts with --source",
         ),
         (vec!["add", "team/platform/extra"], "invalid name"),
-        (vec!["add", "/platform"], "invalid name"),
+        (vec!["add", "/platform"], "needs an interactive terminal"),
+        (vec!["add"], "needs an interactive terminal"),
+        (
+            vec!["add", "--source", "team"],
+            "required arguments were not provided",
+        ),
         (vec!["add", "team/"], "invalid name"),
         (vec!["add", "missing/platform"], "unknown source"),
         (

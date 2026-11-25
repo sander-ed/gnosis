@@ -88,12 +88,35 @@ pub(super) fn catalog(
     Ok(catalog)
 }
 
+/// Which locked packages resolution may move to their source's current commit.
+pub(super) enum Update {
+    None,
+    All,
+    /// These packages and everything they depend on.
+    Packages(BTreeSet<String>),
+}
+
 pub(super) fn resolve(
     manifest: &Manifest,
     old: &Lock,
-    update: bool,
+    mut update: Update,
     store: &mut Store,
 ) -> Result<Lock> {
+    if let Update::Packages(names) = &mut update {
+        let mut pending: Vec<_> = names.iter().cloned().collect();
+        while let Some(name) = pending.pop() {
+            for dependency in old
+                .packages
+                .get(&name)
+                .into_iter()
+                .flat_map(|p| &p.dependencies)
+            {
+                if names.insert(dependency.clone()) {
+                    pending.push(dependency.clone());
+                }
+            }
+        }
+    }
     let catalog = catalog(manifest, store)?;
     let mut lock = Lock {
         format: 1,
@@ -107,8 +130,13 @@ pub(super) fn resolve(
             continue;
         }
         let preferred = manifest.dependencies.get(&name);
+        let refresh = match &update {
+            Update::None => false,
+            Update::All => true,
+            Update::Packages(names) => names.contains(&name),
+        };
         let retained = old.packages.get(&name).filter(|previous| {
-            !update
+            !refresh
                 && manifest.sources.get(&previous.source) == Some(&previous.location)
                 && preferred.is_none_or(|source| source == &previous.source)
         });
@@ -132,6 +160,9 @@ pub(super) fn resolve(
         };
         let content = snapshot_content(store, &name, &selected)?;
         selected.dependencies = metadata::package(&content, &name)?.dependencies;
+        if let (true, Update::Packages(names)) = (refresh, &mut update) {
+            names.extend(selected.dependencies.iter().cloned());
+        }
         pending.extend(selected.dependencies.iter().cloned());
         lock.packages.insert(name, selected);
     }
